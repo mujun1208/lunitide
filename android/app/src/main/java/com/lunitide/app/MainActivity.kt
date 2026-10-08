@@ -1,0 +1,393 @@
+package com.lunitide.app
+
+import android.annotation.SuppressLint
+import android.app.Activity
+import android.app.AlertDialog
+import android.content.Intent
+import android.content.SharedPreferences
+import android.net.Uri
+import android.net.http.SslError
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.webkit.JavascriptInterface
+import android.webkit.SslErrorHandler
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.Toast
+import org.json.JSONArray
+import org.json.JSONObject
+import java.security.MessageDigest
+
+/**
+ * Lunitide 移动伴侣壳：单 Activity WebView 容器。
+ *
+ * 零业务逻辑——界面始终从电脑端网关现拉（壳内启动即 clearCache，
+ * 配合网关 sw.js 的在线优先策略，电脑升级后 APP 自动访问最新版）。
+ *
+ * 关键职责：
+ * 1. 深链接接管配对：lunitide://open?origin=..&fp=.. 与 https://<ip>:<port>/pair#c=..&fp=..
+ * 2. 自签证书信任：SHA-256 指纹比对（配对 URL 内 fp 锚定 / TOFU 持久化）
+ * 3. 多候选地址轮换：配对时网关下发 addresses（IPv4 + 公网 IPv6），
+ *    蜂窝网络下局域网 IPv4 不可达自动切换 IPv6 直连家里电脑。
+ */
+class MainActivity : Activity() {
+
+    companion object {
+        private const val PREFS = "gateway"
+        private const val KEY_ORIGIN = "origin"
+        private const val KEY_FP = "fp"
+        private const val KEY_CANDIDATES = "candidates"
+        private const val LOAD_TIMEOUT_MS = 8000L
+        private const val EXIT_WINDOW_MS = 1500L
+    }
+
+    private lateinit var web: WebView
+    private lateinit var prefs: SharedPreferences
+    private val handler = Handler(Looper.getMainLooper())
+    private var pendingTimeout: Runnable? = null
+    private var candidates: List<String> = emptyList()
+    private var candidateIdx = 0
+    private var lastUrl: String? = null
+    private var backPressedAt = 0L
+    /** 浏览器配对后经 lunitide://open 传入的设备令牌：首次加载网关页时注入 localStorage。 */
+    private var pendingToken: String? = null
+
+    @SuppressLint("SetJavaScriptEnabled")
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        web = WebView(this)
+        web.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            databaseEnabled = true
+            allowFileAccess = false
+            allowContentAccess = false
+            cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+            userAgentString = "$userAgentString LunitideApp/$versionName"
+            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        }
+        web.webViewClient = gatewayClient()
+        web.webChromeClient = WebChromeClient()
+        web.addJavascriptInterface(ShellBridge(), "LunitideShell")
+        setContentView(web)
+        // 启动清缓存：确保不吃旧版本前端（网页资产每次从网关现拉）。
+        web.clearCache(true)
+        handleIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        val data = intent?.data
+        when (data?.scheme) {
+            "lunitide" -> {
+                val origin = data.getQueryParameter("origin")
+                val fp = data.getQueryParameter("fp")
+                val token = data.getQueryParameter("token")
+                // 浏览器配对页「已在 APP 中打开」传入：addresses 逗号分隔。
+                val alt = data.getQueryParameter("addresses")
+                    ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
+                    ?: data.getQueryParameters("alt").orEmpty()
+                if (origin != null) {
+                    saveGateway(origin, fp, alt)
+                    if (!token.isNullOrEmpty()) pendingToken = token
+                }
+                loadSavedOrEmpty()
+            }
+            "https" -> {
+                // 系统相机扫码后 chooser 选择 Lunitide：配对 URL 原样进壳完成配对。
+                // 保留旧候选（家里扫的公网 IPv6 在蜂窝下仍有效），新地址提前。
+                val origin = originOf(data)
+                val fp = fragmentParam(data, "fp")
+                val host = data.host ?: ""
+                val merged = (listOf(host) + decodeCandidates().filter { it != host }).filter { it.isNotEmpty() }
+                saveGateway(origin, fp, merged)
+                loadWithFailover(data.toString())
+            }
+            else -> loadSavedOrEmpty()
+        }
+    }
+
+    private fun originOf(uri: Uri): String {
+        val port = if (uri.port > 0) uri.port else 443
+        // Uri.host 对 IPv6 返回裸地址（无方括号），拼 origin 必须补上方括号，
+        // 否则 https://2409:...:47651 是非法 URL，重启后无法回连。
+        val host = uri.host ?: return ""
+        val bracketed = if (host.contains(':')) "[$host]" else host
+        return "https://$bracketed:$port"
+    }
+
+    private fun fragmentParam(uri: Uri, key: String): String? {
+        val fragment = uri.fragment ?: return null
+        for (pair in fragment.split('&')) {
+            val idx = pair.indexOf('=')
+            if (idx > 0 && pair.substring(0, idx) == key) return pair.substring(idx + 1)
+        }
+        return null
+    }
+
+    private fun saveGateway(origin: String, fp: String?, alts: List<String>?) {
+        prefs.edit().apply {
+            putString(KEY_ORIGIN, origin)
+            if (!fp.isNullOrEmpty()) putString(KEY_FP, fp)
+            if (alts != null) putString(KEY_CANDIDATES, JSONArray(alts).toString())
+            apply()
+        }
+        rebuildCandidates(origin, alts)
+    }
+
+    private fun rebuildCandidates(origin: String, alts: List<String>?) {
+        val list = mutableListOf(origin)
+        alts.orEmpty().forEach { alt ->
+            val candidate = normalizeOrigin(alt)
+            if (candidate != null && candidate != origin) list.add(candidate)
+        }
+        candidates = list
+        candidateIdx = 0
+    }
+
+    /** 裸地址（网关 hostAddresses 格式：IPv4 或 IPv6，不带 scheme/端口）→ origin。 */
+    private fun normalizeOrigin(address: String): String? {
+        val trimmed = address.trim()
+        if (trimmed.isEmpty()) return null
+        val host = if (trimmed.contains(':')) "[$trimmed]" else trimmed
+        return "https://$host:47651"
+    }
+
+    private fun loadSavedOrEmpty() {
+        val origin = prefs.getString(KEY_ORIGIN, null)
+        if (origin == null) {
+            renderWelcome()
+            return
+        }
+        rebuildCandidates(origin, decodeCandidates())
+        loadWithFailover("$origin/")
+    }
+
+    private fun decodeCandidates(): List<String> {
+        val raw = prefs.getString(KEY_CANDIDATES, null) ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).mapNotNull { arr.optString(it) }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun renderWelcome() {
+        val html = """
+            <!doctype html><html><head><meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <style>
+              body{font-family:system-ui,sans-serif;background:#10141c;color:#e8ecf4;
+                   display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+              .card{max-width:320px;padding:32px 24px;text-align:center;line-height:1.7}
+              h1{font-size:20px;margin:0 0 12px}
+              p{font-size:14px;color:#9aa7bd;margin:0 0 8px}
+            </style></head><body><div class="card">
+            <h1>Lunitide</h1>
+            <p>首次使用请扫描电脑端「设置 → 远程访问」里的配对二维码。</p>
+            <p>配对完成后将自动连接，并在 Wi-Fi 与蜂窝网络间自动切换。</p>
+            </div></body></html>
+        """.trimIndent()
+        web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+    }
+
+    private fun loadWithFailover(url: String) {
+        lastUrl = url
+        web.loadUrl(url)
+        scheduleTimeout()
+    }
+
+    private fun scheduleTimeout() {
+        cancelTimeout()
+        val task = Runnable { failover() }
+        pendingTimeout = task
+        handler.postDelayed(task, LOAD_TIMEOUT_MS)
+    }
+
+    private fun cancelTimeout() {
+        pendingTimeout?.let { handler.removeCallbacks(it) }
+        pendingTimeout = null
+    }
+
+    /** 当前 origin 连不上：按候选顺序轮换（蜂窝下 IPv4 → 公网 IPv6 直连）。 */
+    private fun failover() {
+        if (candidateIdx + 1 < candidates.size) {
+            candidateIdx++
+            val nextOrigin = candidates[candidateIdx]
+            val target = lastUrl?.replace(Regex("^https://[^/]+"), nextOrigin)
+                ?: "$nextOrigin/"
+            loadWithFailover(target)
+        } else {
+            runOnUiThread {
+                Toast.makeText(
+                    this,
+                    "暂时连不上电脑：请确认电脑端远程访问已开启；若电脑网络变化，请重新扫码配对",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    private fun gatewayClient() = object : WebViewClient() {
+        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+            val uri = request.url
+            return when (uri.scheme) {
+                "http", "https" -> {
+                    // 网关内的地址在壳内打开；站外链接交给系统浏览器。
+                    val current = Uri.parse(lastUrl ?: return false)
+                    if (uri.host == current.host && uri.port == current.port) false
+                    else {
+                        startActivity(Intent(Intent.ACTION_VIEW, uri))
+                        true
+                    }
+                }
+                "lunitide" -> true // 壳内不需要唤起自己
+                else -> false
+            }
+        }
+
+        override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
+            if (url.startsWith("https://")) scheduleTimeout()
+        }
+
+        override fun onPageFinished(view: WebView, url: String) {
+            if (url.startsWith("https://")) cancelTimeout()
+            maybeInjectToken(view, url)
+        }
+
+        /** 浏览器侧配对完成的凭据转移：注入前端约定的 localStorage 键后重载一次。 */
+        private fun maybeInjectToken(view: WebView, url: String) {
+            val token = pendingToken ?: return
+            val origin = prefs.getString(KEY_ORIGIN, null) ?: return
+            if (!url.startsWith("$origin/")) return
+            pendingToken = null
+            // IPv6 host 在 URL 里必须带方括号（Uri.host 返回裸地址）。
+            val parsed = Uri.parse(origin)
+            val host = parsed.host ?: return
+            val bracketed = if (host.contains(':')) "[$host]" else host
+            val port = if (parsed.port > 0) parsed.port else 443
+            val credentials = JSONObject()
+                .put("wsUrl", "wss://$bracketed:$port/bridge")
+                .put("token", token)
+                .toString()
+            view.evaluateJavascript(
+                "try{localStorage.setItem('lunitide:remote-bridge', $credentials)}catch(e){}"
+            ) { view.reload() }
+        }
+
+        override fun onReceivedError(
+            view: WebView,
+            request: WebResourceRequest,
+            error: WebResourceError
+        ) {
+            if (request.isForMainFrame && request.url.toString() == lastUrl) {
+                cancelTimeout()
+                failover()
+            }
+        }
+
+        override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+            val presented = error.certificate.x509Certificate?.let { fingerprintOf(it) }
+            val expected = expectedFingerprint()
+            when {
+                presented != null && expected != null && presented == expected -> {
+                    handler.proceed()
+                    if (prefs.getString(KEY_FP, null) == null) persistFingerprint(presented)
+                }
+                expected == null && presented != null -> confirmFingerprint(presented, handler)
+                else -> {
+                    handler.cancel()
+                    runOnUiThread {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "安全证书校验失败：连接已拒绝，请重新扫码配对",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun expectedFingerprint(): String? {
+        lastUrl?.let { fragmentParam(Uri.parse(it), "fp") }?.let { return it.lowercase() }
+        return prefs.getString(KEY_FP, null)?.lowercase()
+    }
+
+    private fun persistFingerprint(fp: String) {
+        prefs.edit().putString(KEY_FP, fp).apply()
+    }
+
+    /** 无任何锚点（TOFU 首次）：原生对话框展示指纹，用户与电脑端比对后决定。 */
+    private fun confirmFingerprint(presented: String, handler: SslErrorHandler) {
+        runOnUiThread {
+            AlertDialog.Builder(this)
+                .setTitle("验证电脑身份")
+                .setMessage(
+                    "连接的电脑证书指纹为：\n\n$presented\n\n" +
+                        "请与电脑端「设置 → 远程访问 → 身份指纹」核对一致后继续。"
+                )
+                .setPositiveButton("一致，继续") { _, _ ->
+                    persistFingerprint(presented)
+                    handler.proceed()
+                }
+                .setNegativeButton("取消") { _, _ -> handler.cancel() }
+                .setOnCancelListener { handler.cancel() }
+                .show()
+        }
+    }
+
+    private fun fingerprintOf(cert: java.security.cert.X509Certificate): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(cert.encoded)
+        return digest.joinToString("") { "%02x".format(it) }.take(16)
+    }
+
+    /** 网页（壳内）配对成功后回传网关信息：origin/fingerprint/addresses 全量候选。 */
+    inner class ShellBridge {
+        @JavascriptInterface
+        fun saveGateway(json: String) {
+            runCatching {
+                val obj = JSONObject(json)
+                val origin = obj.optString("origin")
+                val fp = obj.optString("fingerprint")
+                val addresses = obj.optJSONArray("addresses")?.let { arr ->
+                    (0 until arr.length()).mapNotNull { arr.optString(it).ifEmpty { null } }
+                }
+                if (origin.isNotEmpty()) {
+                    this@MainActivity.saveGateway(origin, fp.ifEmpty { null }, addresses)
+                }
+            }
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (web.canGoBack()) web.goBack()
+        else {
+            val now = System.currentTimeMillis()
+            if (now - backPressedAt < EXIT_WINDOW_MS) finish()
+            else {
+                backPressedAt = now
+                Toast.makeText(this, "再按一次退出 Lunitide", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        cancelTimeout()
+        web.destroy()
+        super.onDestroy()
+    }
+
+    private val versionName: String
+        get() = packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+}

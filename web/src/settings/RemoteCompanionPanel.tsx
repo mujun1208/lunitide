@@ -50,6 +50,18 @@ function useCountdown(expiresAt: string | undefined): string {
   return `${minutes}:${seconds}`
 }
 
+// 地址分类（hostAddresses 已剔除环回/链路本地）：IPv4 = 同一 Wi-Fi 局域网
+// 可达；全局 IPv6 = 手机蜂窝流量直连家里电脑的候选（APP 端自动轮换）。
+export function classifyAddresses(addresses: readonly string[]): { lan: string[]; cellular: string[] } {
+  const lan: string[] = []
+  const cellular: string[] = []
+  for (const address of addresses) {
+    if (address.includes(':')) cellular.push(address)
+    else lan.push(address)
+  }
+  return { lan, cellular }
+}
+
 export function RemoteCompanionPanel({ bridge = remoteCompanionBridge }: { bridge?: RemoteCompanionBridge }): React.JSX.Element {
   const [status, setStatus] = useState<RemoteAccessStatusResult | null>(null)
   const [devices, setDevices] = useState<DeviceRow[]>([])
@@ -141,6 +153,7 @@ export function RemoteCompanionPanel({ bridge = remoteCompanionBridge }: { bridg
   const activeDevices = devices.filter(d => !d.revokedAt)
   const revokedDevices = devices.filter(d => d.revokedAt)
   const deviceNameOf = (id: string) => devices.find(d => d.deviceId === id)?.name ?? (id === 'anonymous' ? '未知来源' : id)
+  const reachability = classifyAddresses(status?.addresses ?? [])
 
   return (
     <div className="governance-stack">
@@ -202,6 +215,30 @@ export function RemoteCompanionPanel({ bridge = remoteCompanionBridge }: { bridg
           </div>
         </div>
       )}
+
+      <div className="setting-group">
+        <div className="setting-group-title">外网可达性</div>
+        <div className="setting-row" style={{ gridTemplateColumns: '1fr' }}>
+          <div className="setting-desc">
+            {reachability.cellular.length > 0 ? (
+              <>
+                本机已有公网 IPv6：<code>{reachability.cellular.join('、')}</code>。
+                手机在外用蜂窝流量时，Lunitide APP 会自动切换到该地址直连家里电脑。
+                {reachability.lan.length > 0 && <> 局域网地址（仅同一 Wi-Fi 可达）：{reachability.lan.join('、')}。</>}
+                <br />若外网连不上：多为路由器拦截 IPv6 入站——在路由器设置中放行
+                「IPv6 防火墙/入站过滤」对端口 {status?.port ?? 47651} 的 TCP 连接；也可先用手机浏览器
+                在蜂窝网络下直接访问上述 IPv6 地址自检。
+                <br />运营商重新分配 IPv6 前缀后地址会变化，APP 连不上时重新扫码配对即可。
+              </>
+            ) : (
+              <>
+                未检测到公网 IPv6 地址，手机仅能在同一 Wi-Fi（局域网）下连接。
+                <br />需要外网直连：在光猫/路由器开启 IPv6（多数运营商默认下发），重新打开远程访问即可。
+              </>
+            )}
+          </div>
+        </div>
+      </div>
 
       <div className="setting-group">
         <div className="setting-group-title">已配对设备（{activeDevices.length}）</div>

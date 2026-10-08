@@ -219,6 +219,7 @@ func (s *Service) startLockedServer(ctx context.Context, allowElevate bool) erro
 	mux.HandleFunc("/api/info", s.handleInfo)
 	mux.HandleFunc("/api/pair", s.handlePair)
 	mux.HandleFunc("/bridge", s.serveBridgeWS)
+	mux.HandleFunc("/app/", s.handleApk)
 	mux.HandleFunc("/", s.handleStatic)
 	server := &http.Server{
 		Handler:           mux,
@@ -347,12 +348,15 @@ func (s *Service) IssuePairCode(ctx context.Context, lang string) (PairCodeInfo,
 	}, nil
 }
 
-// PairResult 是配对成功返回给手机的信息。
+// PairResult 是配对成功返回给手机的信息。Addresses/Fingerprint 供
+// Android 壳保存多候选（局域网 IPv4 + 公网 IPv6 蜂窝直连）与证书指纹。
 type PairResult struct {
 	DeviceToken string    `json:"deviceToken"`
 	ExpiresAt   time.Time `json:"expiresAt"`
 	Product     string    `json:"product"`
 	Version     string    `json:"version"`
+	Addresses   []string  `json:"addresses,omitempty"`
+	Fingerprint string    `json:"fingerprint,omitempty"`
 }
 
 // HandlePair 消费配对码并签发设备令牌。错误路径全部走 IP 锁定计数。
@@ -399,11 +403,16 @@ func (s *Service) HandlePair(ctx context.Context, code, deviceName, platform, ip
 	s.pairMu.Lock()
 	delete(s.pairFailures, ip)
 	s.pairMu.Unlock()
+	s.mu.Lock()
+	fp := s.certFP
+	s.mu.Unlock()
 	return PairResult{
 		DeviceToken: token,
 		ExpiresAt:   device.ExpiresAt,
 		Product:     "Lunitide",
 		Version:     s.version,
+		Addresses:   hostAddresses(),
+		Fingerprint: fmtFingerprint(fp),
 	}, nil
 }
 
@@ -645,6 +654,45 @@ func (s *Service) handleStatic(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-cache")
 	http.ServeFile(w, r, page)
+}
+
+// handleApk 服务 Android 壳安装包（安装目录 app/lunitide.apk）。无需
+// 鉴权：配对页「安装 Lunitide APP」入口在配对之前（装 APP 是配对的
+// 前置步骤），下载本身不含敏感信息，且网关仅监听局域网/本机 IPv6。
+func (s *Service) handleApk(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if path.Clean("/"+r.URL.Path) != "/app/lunitide.apk" {
+		http.NotFound(w, r)
+		return
+	}
+	full := s.apkPath()
+	if full == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := os.Stat(full); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.android.package-archive")
+	w.Header().Set("Cache-Control", "no-cache")
+	http.ServeFile(w, r, full)
+}
+
+// apkPath 定位壳安装包：生产 = exe 同级 app\lunitide.apk（与 web\dist 同层，
+// 即 renderer 目录上溯两层）；e2e/单测用 rendererDirOverride 同样规则。
+func (s *Service) apkPath() string {
+	dir := s.rendererDirOverride
+	if dir == "" {
+		dir = rendererDir()
+	}
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(filepath.Dir(dir)), "app", "lunitide.apk")
 }
 
 func rendererDir() string {

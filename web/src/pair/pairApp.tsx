@@ -48,6 +48,11 @@ export function detectPlatform(userAgent: string): string {
   return 'mobile-web'
 }
 
+// Android 壳 APP 的 WebView 会向 UA 追加「 LunitideApp/<version>」。
+export function isShellApp(userAgent: string): boolean {
+  return /LunitideApp\//.test(userAgent)
+}
+
 export type InstallGuidance =
   | { kind: 'prompt' } // 浏览器原生安装按钮可用（beforeinstallprompt 已触发）
   | { kind: 'ios-home-screen' } // iOS Safari：分享 → 添加到主屏幕
@@ -62,7 +67,14 @@ export function installGuidance(platform: string, promptAvailable: boolean): Ins
   return { kind: 'shortcut', reason: platform === 'android-pwa' ? 'self-signed' : 'unknown' }
 }
 
-export interface PairSuccess { deviceToken: string; expiresAt: string }
+export interface PairSuccess {
+  deviceToken: string
+  expiresAt: string
+  /** 网关候选地址（局域网 IPv4 + 公网 IPv6，蜂窝直连用）；旧版网关无此字段。 */
+  addresses?: string[]
+  /** 网关证书短指纹；旧版网关无此字段。 */
+  fingerprint?: string
+}
 type PairOutcome = { ok: true; result: PairSuccess } | { ok: false; error: string }
 
 // pairWithGateway 调网关配对端点。独立导出便于单测注入 fetch。
@@ -100,7 +112,10 @@ export function PairApp() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  const [pairInfo, setPairInfo] = useState<PairSuccess | null>(null)
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null)
+  // Android 浏览器（非壳）场景探测网关是否带 APP 安装包（/app/lunitide.apk）。
+  const [apkAvailable, setApkAvailable] = useState(false)
 
   useEffect(() => {
     // 桌面语言随二维码带来，立即写入本机（用户扫完码语言即就位，
@@ -109,6 +124,27 @@ export function PairApp() {
     // 清掉地址栏中的配对码（一次性敏感值，避免刷新/分享泄露）。
     if (fromHash) history.replaceState(null, '', '/pair')
   }, [fromHash])
+
+  useEffect(() => {
+    if (isShellApp(navigator.userAgent)) return
+    fetch('/app/lunitide.apk', { method: 'HEAD' })
+      .then(response => { if (response.ok) setApkAvailable(true) })
+      .catch(() => { /* 网关无安装包：保持快捷方式引导 */ })
+  }, [])
+
+  useEffect(() => {
+    // 壳内配对成功：把网关多候选地址与指纹交给壳保存（蜂窝网络自动
+    // 切换 IPv6 直连用；token 已在壳 WebView 的 localStorage 里）。
+    if (!done || !pairInfo || !isShellApp(navigator.userAgent)) return
+    const bridge = (window as unknown as { LunitideShell?: { saveGateway(json: string): void } }).LunitideShell
+    try {
+      bridge?.saveGateway?.(JSON.stringify({
+        origin: location.origin,
+        fingerprint: pairInfo.fingerprint ?? fromHash?.fingerprint ?? '',
+        addresses: pairInfo.addresses ?? [],
+      }))
+    } catch { /* 壳桥异常不阻塞配对结果 */ }
+  }, [done, pairInfo, fromHash])
 
   useEffect(() => {
     // 可安装（可信证书环境）时浏览器会触发该事件；自签证书下 Android
@@ -132,43 +168,73 @@ export function PairApp() {
     try { await navigator.serviceWorker?.register('/sw.js') } catch { /* SW 失败不阻塞配对结果 */ }
     // 轮询通知（M4）需要浏览器通知权限；拒绝不阻塞配对，仅无通知。
     try { if (typeof Notification !== 'undefined' && Notification.permission === 'default') void Notification.requestPermission() } catch { /* 权限请求失败忽略 */ }
+    setPairInfo(outcome.result)
     setDone(true); setBusy(false)
   }
 
+  // 「在 Lunitide APP 中打开」：把本设备授权（token）与候选地址经本机
+  // intent 交给已安装的壳（配对码是一次性的，凭据转移避免二次扫码）。
+  const shellHandoffUrl = done && pairInfo && !isShellApp(navigator.userAgent) && apkAvailable
+    ? `lunitide://open?origin=${encodeURIComponent(location.origin)}`
+      + `&fp=${encodeURIComponent(pairInfo.fingerprint ?? fromHash?.fingerprint ?? '')}`
+      + `&token=${encodeURIComponent(pairInfo.deviceToken)}`
+      + `&addresses=${encodeURIComponent((pairInfo.addresses ?? []).join(','))}`
+    : ''
+
   if (done) {
+    const shell = isShellApp(navigator.userAgent)
     const guidance = installGuidance(detectPlatform(navigator.userAgent), installPrompt !== null)
     return (
       <div className="pair-card">
         <img className="pair-logo" src="/brand/icon-192.png" alt="Lunitide" />
         <h1>配对成功</h1>
         <p className="pair-sub">这台设备已关联你的电脑。</p>
-        {guidance.kind === 'prompt' && installPrompt && (
-          <>
-            <button
-              className="pair-btn"
-              onClick={() => { void installPrompt.prompt(); setInstallPrompt(null) }}
-            >
-              安装到手机主屏幕
-            </button>
-            <p className="pair-hint">安装后像 App 一样全屏打开，无需浏览器地址栏。</p>
-          </>
-        )}
-        {guidance.kind === 'ios-home-screen' && (
+        {shell ? (
           <p className="pair-sub">
-            建议添加到主屏幕：Safari 底部分享按钮 →「添加到主屏幕」，<br />即可像 App 一样打开完整界面。
+            网关地址与证书指纹已保存到 Lunitide APP。<br />
+            在家走 Wi-Fi、在外走蜂窝流量，自动切换直连你的电脑。
           </p>
-        )}
-        {guidance.kind === 'shortcut' && (
-          <p className="pair-sub">
-            建议添加到主屏幕：点浏览器右上角 ⋮ 菜单 →「安装并创建快捷方式」→ 选「创建快捷方式」（旧版菜单叫「添加到主屏幕」）。
-            {guidance.reason === 'self-signed' && (
+        ) : apkAvailable ? (
+          <>
+            <a className="pair-btn" href="/app/lunitide.apk" download="Lunitide.apk">安装 Lunitide APP（推荐）</a>
+            <p className="pair-hint">
+              下载后打开安装（需允许「未知来源/安装未知应用」）；安装完成后回到本页，
+              点下方按钮把本设备授权带入 APP，无需再次扫码。
+            </p>
+            {shellHandoffUrl && <a className="pair-open" href={shellHandoffUrl}>已在 APP 中打开（带入授权）</a>}
+            <p className="pair-hint">也可以不装 APP：本页继续使用网页版，或按下面的快捷方式指引使用。</p>
+          </>
+        ) : (
+          <>
+            {guidance.kind === 'prompt' && installPrompt && (
               <>
-                <br />弹窗里「安装」显示「无法安装此应用」属正常：内网直连使用自签证书，
-                Chrome 安全模型不允许此类网站安装成应用（任何网站都无法绕过，属平台限制）。
-                <br />「创建快捷方式」后功能完整可用，图标与名称同应用一致。
+                <button
+                  className="pair-btn"
+                  onClick={() => { void installPrompt.prompt(); setInstallPrompt(null) }}
+                >
+                  安装到手机主屏幕
+                </button>
+                <p className="pair-hint">安装后像 App 一样全屏打开，无需浏览器地址栏。</p>
               </>
             )}
-          </p>
+            {guidance.kind === 'ios-home-screen' && (
+              <p className="pair-sub">
+                建议添加到主屏幕：Safari 底部分享按钮 →「添加到主屏幕」，<br />即可像 App 一样打开完整界面。
+              </p>
+            )}
+            {guidance.kind === 'shortcut' && (
+              <p className="pair-sub">
+                建议添加到主屏幕：点浏览器右上角 ⋮ 菜单 →「安装并创建快捷方式」→ 选「创建快捷方式」（旧版菜单叫「添加到主屏幕」）。
+                {guidance.reason === 'self-signed' && (
+                  <>
+                    <br />弹窗里「安装」显示「无法安装此应用」属正常：内网直连使用自签证书，
+                    Chrome 安全模型不允许此类网站安装成应用（任何网站都无法绕过，属平台限制）。
+                    <br />「创建快捷方式」后功能完整可用，图标与名称同应用一致。
+                  </>
+                )}
+              </p>
+            )}
+          </>
         )}
         <a className="pair-open" href="/">进入 Lunitide</a>
       </div>
@@ -209,6 +275,12 @@ export function PairApp() {
         {busy && <span className="spinner" aria-hidden="true" />}
         {busy ? '配对中…' : '完成配对'}
       </button>
+      {apkAvailable && !isShellApp(navigator.userAgent) && (
+        <>
+          <a className="pair-open" href="/app/lunitide.apk" download="Lunitide.apk">先安装 Lunitide APP（推荐）</a>
+          <p className="pair-hint">先装 APP 再配对：安装后重新扫码，选择用 Lunitide 打开，配对与使用都在 APP 内完成。</p>
+        </>
+      )}
       <p className="pair-hint">配对码 5 分钟内有效且只能使用一次；设备授权 180 天，可随时在电脑端吊销。</p>
     </div>
   )

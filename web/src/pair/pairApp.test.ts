@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearRemoteCredentials, loadRemoteCredentials } from '../bridge/wsTransport'
-import { applyPairLanguage, detectDeviceName, detectPlatform, installGuidance, pairWithGateway, parsePairHash } from './pairApp'
+import { applyPairLanguage, detectDeviceName, detectPlatform, installGuidance, isShellApp, pairWithGateway, parsePairHash } from './pairApp'
 
 const jsonResponse = (status: number, body: unknown) => {
   const text = typeof body === 'string' ? body : JSON.stringify(body)
@@ -56,6 +56,10 @@ describe('device detection', () => {
     expect(detectPlatform('iPhone')).toBe('ios-pwa')
     expect(detectPlatform('Android')).toBe('android-pwa')
     expect(detectPlatform('Firefox')).toBe('mobile-web')
+  })
+  it('detects the Android shell via the LunitideApp UA marker', () => {
+    expect(isShellApp('Mozilla/5.0 (Linux; Android 14; Pixel 8) LunitideApp/0.16.4')).toBe(true)
+    expect(isShellApp('Mozilla/5.0 (Linux; Android 14; Pixel 8)')).toBe(false)
   })
 })
 

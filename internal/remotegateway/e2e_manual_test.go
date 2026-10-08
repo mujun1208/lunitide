@@ -312,13 +312,23 @@ func TestE2EMobileServe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 第二个配对码：壳 UA（LunitideApp）用例专用（一码一次，独立消费）。
+	infoShell, err := svc.IssuePairCode(ctx, "zh-CN")
+	if err != nil {
+		t.Fatal(err)
+	}
 	addr := svc.listenerAddr()
 	_, port, _ := net.SplitHostPort(addr)
 	url := info.URL
 	if port != "" && port != fmt.Sprint(DefaultPort) {
 		url = strings.Replace(url, fmt.Sprintf(":%d", DefaultPort), ":"+port, 1)
 	}
+	urlShell := infoShell.URL
+	if port != "" && port != fmt.Sprint(DefaultPort) {
+		urlShell = strings.Replace(urlShell, fmt.Sprintf(":%d", DefaultPort), ":"+port, 1)
+	}
 	fmt.Printf("E2E_PAIR_URL=%s\n", url)
+	fmt.Printf("E2E_PAIR_URL_SHELL=%s\n", urlShell)
 	fmt.Printf("E2E_CODE=%s\n", info.Code)
 	fmt.Printf("E2E_ADDR=%s\n", addr)
 	fmt.Println("E2E_READY=1 (holding 6 minutes for the mobile browser run)")

@@ -40,7 +40,7 @@ function Invoke-ArtifactSigning([string]$Artifact) {
   }
   elseif ($RequireSignature) { throw 'Production signing is required; set LUNITIDE_SIGN_COMMAND with an {artifact} token, or use -AllowUnsignedDevelopment only for a non-publishable test candidate' }
 }
-function Publish-GitHubRelease([string]$Version, [string]$Installer, [string]$LatestJson) {
+function Publish-GitHubRelease([string]$Version, [string]$Installer, [string]$LatestJson, [string]$Apk) {
   $gh = Get-Command gh -ErrorAction SilentlyContinue
   if (-not $gh) { Write-Warning 'gh not found; skip GitHub release upload'; return }
   & gh auth status 2>$null | Out-Null
@@ -48,6 +48,7 @@ function Publish-GitHubRelease([string]$Version, [string]$Installer, [string]$La
   $tag = "v$Version"
   $notes = Join-Path $PSScriptRoot ("notes-{0}.md" -f $Version)
   $assets = @($Installer, $LatestJson)
+  if ($Apk -and (Test-Path -LiteralPath $Apk -PathType Leaf)) { $assets += $Apk }
   $sums = Join-Path (Split-Path -Parent $LatestJson) 'SHA256SUMS.txt'
   if (Test-Path -LiteralPath $sums -PathType Leaf) { $assets += $sums }
   $target = (& git -C $root rev-parse HEAD).Trim()
@@ -107,6 +108,27 @@ try {
 finally { Pop-Location }
 Copy-Item (Join-Path $root 'web\dist\*') (Join-Path $stage 'web\dist') -Recurse -Force
 Copy-Item (Join-Path $root 'resources\lunitide-icon.ico') $stage -Force
+# Android 壳 APK：零业务逻辑 WebView 容器（版本随根 VERSION 同步）。签名密钥
+# 在 .release-cache\lunitide-release.jks（一次性生成，缺失即报错——防签名
+# 漂移导致已装 APP 无法升级）。产物进 stage\app（网关 /app/lunitide.apk
+# 下载入口）并作为独立发布附件。
+$apkArtifact = $null
+try {
+  $androidDir = Join-Path $root 'android'
+  $keystoreFile = Join-Path $root '.release-cache\lunitide-release.jks'
+  if (-not (Test-Path $keystoreFile -PathType Leaf)) { throw 'Missing .release-cache\lunitide-release.jks; generate once per publisher machine (keytool -genkeypair, see docs)' }
+  & (Join-Path $androidDir 'gradlew.bat') -p $androidDir assembleRelease --console=plain --no-daemon
+  if ($LASTEXITCODE) { throw 'android shell build failed' }
+  $apkBuilt = Join-Path $androidDir 'app\build\outputs\apk\release\app-release.apk'
+  if (-not (Test-Path $apkBuilt -PathType Leaf)) { throw 'android build did not produce app-release.apk' }
+  New-Item (Join-Path $stage 'app') -ItemType Directory -Force | Out-Null
+  Copy-Item $apkBuilt (Join-Path $stage 'app\lunitide.apk') -Force
+  $apkArtifact = Join-Path $out ("Lunitide-Android-{0}.apk" -f $version)
+  Copy-Item $apkBuilt $apkArtifact -Force
+} catch {
+  if ($env:LUNITIDE_SKIP_ANDROID) { Write-Warning "Android APK skipped: $_" }
+  else { throw }
+}
 # The PE-embedded icon (cmd/desktop/lunitide.syso) is committed to the repo and
 # automatically linked by `go build`. To regenerate after updating the mark:
 #   go run ./cmd/gen-icon
@@ -214,10 +236,14 @@ if (-not $SkipInstaller) {
   $releaseManifest=Join-Path $out 'SHA256SUMS.txt'
   $installerName=Split-Path $installer -Leaf
   $stageManifestName=(Split-Path $stage -Leaf)+'/SHA256SUMS.txt'
-  @(
+  $releaseSumLines=@(
     "{0}  {1}" -f (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant(),$installerName
     "{0}  {1}" -f (Get-FileHash $manifest -Algorithm SHA256).Hash.ToLowerInvariant(),$stageManifestName
-  ) | Set-Content $releaseManifest -Encoding ascii
+  )
+  if ($apkArtifact -and (Test-Path -LiteralPath $apkArtifact -PathType Leaf)) {
+    $releaseSumLines += "{0}  {1}" -f (Get-FileHash $apkArtifact -Algorithm SHA256).Hash.ToLowerInvariant(),(Split-Path $apkArtifact -Leaf)
+  }
+  $releaseSumLines | Set-Content $releaseManifest -Encoding ascii
   $installerHash=(Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
   $latestJson='{"version":"'+$version+'","channel":"stable","sha256":"'+$installerHash+'","installer":"'+$installerName+'"}'
   [System.IO.File]::WriteAllText((Join-Path $out 'latest.json'),$latestJson)
@@ -228,7 +254,7 @@ if (-not $SkipInstaller) {
     Copy-Item -LiteralPath $installer -Destination (Join-Path $updates $installerName) -Force
     [System.IO.File]::WriteAllText((Join-Path $updates 'latest.json'),$latestJson)
   }
-  if ($Publish) { Publish-GitHubRelease $version $installer (Join-Path $out 'latest.json') }
+  if ($Publish) { Publish-GitHubRelease $version $installer (Join-Path $out 'latest.json') $apkArtifact }
 }
 Assert-ReleaseSourceUnchanged $sourceBefore (Get-ReleaseSourceSnapshot $root $out)
 Write-Host "Release stage: $stage"; if (-not $SkipInstaller) { Write-Host "Installer: $installer" }

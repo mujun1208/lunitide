@@ -5,6 +5,11 @@ $ErrorActionPreference='Stop'; $Stage=(Resolve-Path $Stage).Path
 Assert-NoReleaseReparsePoint $Stage -Tree
 $required=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','lunitide-maintenance.exe','SOURCE-CANDIDATE.json','Release-Safety.ps1','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico','web\dist\index.html','licenses\Microsoft.Web.WebView2-LICENSE.txt','licenses\Microsoft.Web.WebView2-NOTICE.txt','licenses\NotoSansSC-OFL.txt','licenses\NotoSansSC-NOTICE.txt')
 foreach($f in $required){if(-not(Test-Path (Join-Path $Stage $f)-PathType Leaf)){throw "Missing staged file: $f"}}
+# Android 壳：开发演练（无 SDK 环境，LUNITIDE_SKIP_ANDROID）可整目录缺席，
+# 一旦出现 app\ 目录则必须恰好是 lunitide.apk（正式发布闸门保证在场）。
+if(Test-Path (Join-Path $Stage 'app') -PathType Container){
+  if(-not(Test-Path (Join-Path $Stage 'app\lunitide.apk') -PathType Leaf)){throw 'Missing staged file: app\lunitide.apk'}
+}
 $allowedRootFiles=@('Lunitide.exe','lunitide-engine.exe','purge-user-data.exe','lunitide-maintenance.exe','SOURCE-CANDIDATE.json','Release-Safety.ps1','WebView2Loader.dll','stop-install-processes.ps1','verify-install-directory.ps1','lunitide-icon.ico','SHA256SUMS.txt')
 if($Installed){$allowedRootFiles += @('Uninstall.exe','.lunitide-install-owner')}
 $files=Get-ChildItem $Stage -File -Recurse
@@ -13,7 +18,7 @@ foreach($item in $files){
   if($rel -match '(?i)(^|/)omni(/|$)' -or $rel -match '(?i)Comni-Setup' -or $rel -match '(?i)llama-omni-server' -or $rel -match '(?i)\.gguf$'){
     throw "Omni/Comni/MiniCPM-o runtime must not ship in Setup: $rel"
   }
-  $allowed=($rel -in $allowedRootFiles) -or $rel.StartsWith('web/dist/',[StringComparison]::Ordinal) -or $rel.StartsWith('licenses/',[StringComparison]::Ordinal)
+  $allowed=($rel -in $allowedRootFiles) -or $rel.StartsWith('web/dist/',[StringComparison]::Ordinal) -or $rel.StartsWith('licenses/',[StringComparison]::Ordinal) -or $rel -eq 'app/lunitide.apk'
   if(-not $allowed){throw "Staged file is not on the exact release allowlist: $rel"}
 	if($rel.StartsWith('web/dist/',[StringComparison]::Ordinal) -and $rel -notmatch '(?i)\.(html|js|mjs|css|map|json|webmanifest|png|jpe?g|gif|webp|svg|ico|woff2?|ttf|pfb|bcmap)$'){throw "Renderer asset type is not allowed: $rel"}
 	if($rel.StartsWith('licenses/',[StringComparison]::Ordinal) -and $rel -notmatch '(?i)\.(txt|md)$'){throw "License asset type is not allowed: $rel"}

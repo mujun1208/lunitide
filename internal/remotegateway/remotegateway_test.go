@@ -1,6 +1,7 @@
 package remotegateway
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -306,6 +307,95 @@ func TestServicePairFlowAndLockout(t *testing.T) {
 	status, _ = svc.Status(ctx)
 	if status.Enabled {
 		t.Fatal("still enabled after disable")
+	}
+}
+
+// TestHandleApk 钉住 Android 壳安装包分发路由：仅 GET/HEAD 放行、仅精确
+// /app/lunitide.apk、Content-Type 为 APK MIME、无包/路径穿越一律 404。
+// 顺带断言配对结果携带指纹与候选地址（壳 APP 直连所需）。
+func TestHandleApk(t *testing.T) {
+	ctx := context.Background()
+	root := newTestRoot(t)
+	svc, err := New(ctx, root, &fakeHandler{}, "0.0.0-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Close()
+	svc.port = 0
+	if err := svc.Enable(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// 布局：<base>\web\dist 为 rendererDirOverride，APK 在其兄弟 app\ 下。
+	base := t.TempDir()
+	renderer := filepath.Join(base, "web", "dist")
+	if err := os.MkdirAll(renderer, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	svc.rendererDirOverride = renderer
+
+	do := func(method, target string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, target, nil)
+		rec := httptest.NewRecorder()
+		svc.handleApk(rec, req)
+		return rec
+	}
+
+	// 包未布置 → 404（配对页 apkAvailable 探测落空，走浏览器引导分支）。
+	if rec := do(http.MethodGet, "/app/lunitide.apk"); rec.Code != http.StatusNotFound {
+		t.Fatalf("missing apk status = %d, want 404", rec.Code)
+	}
+
+	payload := []byte("PK\x03\x04 fake android package")
+	if err := os.MkdirAll(filepath.Join(base, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "app", "lunitide.apk"), payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// GET：200 + APK MIME + 逐字节一致。
+	rec := do(http.MethodGet, "/app/lunitide.apk")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get status = %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/vnd.android.package-archive" {
+		t.Fatalf("content-type = %q", ct)
+	}
+	if !bytes.Equal(rec.Body.Bytes(), payload) {
+		t.Fatalf("apk body mismatch: %d bytes", rec.Body.Len())
+	}
+	// HEAD：配对页可用性探测依赖。
+	if rec := do(http.MethodHead, "/app/lunitide.apk"); rec.Code != http.StatusOK {
+		t.Fatalf("head status = %d", rec.Code)
+	}
+	// 其他方法拒绝。
+	if rec := do(http.MethodPost, "/app/lunitide.apk"); rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("post status = %d, want 405", rec.Code)
+	}
+	// 仅精确路径放行（含路径穿越规整后不匹配）。
+	for _, target := range []string{"/app/other.apk", "/app/lunitide.apk/x", "/app/../lunitide.apk", "/app/", "/app"} {
+		if rec := do(http.MethodGet, target); rec.Code != http.StatusNotFound {
+			t.Fatalf("target %q status = %d, want 404", target, rec.Code)
+		}
+	}
+
+	// 配对结果必须带指纹（确定性非空）；候选地址存在时须为合法 IP。
+	info, err := svc.IssuePairCode(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.HandlePair(ctx, info.Code, "我的手机", "android-shell", "192.0.2.11")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Fingerprint == "" {
+		t.Fatal("pair result missing fingerprint")
+	}
+	for _, a := range result.Addresses {
+		if net.ParseIP(a) == nil {
+			t.Fatalf("pair result address %q is not an IP", a)
+		}
 	}
 }
 
