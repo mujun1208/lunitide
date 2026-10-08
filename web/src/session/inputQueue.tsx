@@ -10,7 +10,6 @@ import type { RunQueueListResult } from '../generated/bridge'
 
 export type QueueDelivery = NonNullable<RunQueueListResult['delivery']>
 type QueueSender = (text: string, deliveryId: string) => unknown | Promise<unknown>
-const QUEUE_READ_FAILED = '补充输入状态暂时无法读取，请重试核对'
 
 function sameQueueJson(a: unknown, b: unknown): boolean {
   try {
@@ -78,10 +77,11 @@ export function useInputQueue(sessionId: string, streaming = false, officeTaskId
         setDelivery(prev => sameQueueJson(prev, r.delivery) ? prev : r.delivery)
         // Once the engine settles every queued row (injected or withdrawn),
         // the "queued" notice is stale — the follow-up has already been folded
-        // into the turn, so drop it alongside the read-failure notice.
-        setNotice(previous => previous === QUEUE_READ_FAILED || (r.items.length === 0 && previous === FOLLOW_UP_QUEUE_NOTICE) ? '' : previous)
+        // into the turn, so drop it.
+        setNotice(previous => r.items.length === 0 && previous === FOLLOW_UP_QUEUE_NOTICE ? '' : previous)
       }
-    } catch { if (current()) setNotice(QUEUE_READ_FAILED) }
+      // 读取失败（网关瞬断/重连间隙）静默：不打扰用户，下个轮询或操作自动重试。
+    } catch { /* 静默重试 */ }
   }, [])
 
   useEffect(() => {

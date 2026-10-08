@@ -37,10 +37,12 @@ it('does not replace queue items when the poll payload is unchanged', async () =
   expect(result.current.items).toBe(first)
 })
 
-it('reloads saved supplements and clears the read failure after engine recovery without sending', async () => {
+it('reloads saved supplements silently after a transient read failure and engine recovery without sending', async () => {
   queue().list.mockRejectedValueOnce(new Error('RPC closed')).mockResolvedValue({ items: [item(1, 'saved')] })
   const { result, unmount } = renderHook(() => useInputQueue(MESSAGE_ID))
-  await waitFor(() => expect(result.current.notice).toContain('暂时无法读取'))
+  // 读取失败必须静默：不打扰用户（不再弹「暂时无法读取」），也不影响后续恢复。
+  await act(async () => { await Promise.resolve() })
+  expect(result.current.notice).toBe('')
   await act(async () => { window.dispatchEvent(new Event(ENGINE_RECOVERED_EVENT)) })
   await waitFor(() => expect(result.current.items).toHaveLength(1))
   expect(result.current.notice).toBe('')

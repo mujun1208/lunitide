@@ -18,6 +18,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import com.google.zxing.integration.android.IntentIntegrator
+import com.google.zxing.integration.android.IntentResult
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -191,13 +193,37 @@ class MainActivity : Activity() {
               .card{max-width:320px;padding:32px 24px;text-align:center;line-height:1.7}
               h1{font-size:20px;margin:0 0 12px}
               p{font-size:14px;color:#9aa7bd;margin:0 0 8px}
+              .scan-btn{display:inline-block;margin:16px 0 12px;padding:12px 40px;font-size:16px;
+                   color:#10141c;background:#7aa2ff;border:none;border-radius:8px}
             </style></head><body><div class="card">
-            <h1>Lunitide</h1>
-            <p>首次使用请扫描电脑端「设置 → 远程访问」里的配对二维码。</p>
-            <p>配对完成后将自动连接，并在 Wi-Fi 与蜂窝网络间自动切换。</p>
-            </div></body></html>
+              <h1>Lunitide</h1>
+              <p>扫描电脑端「设置 → 远程访问」里的二维码，即可连接你的电脑。</p>
+              <button class="scan-btn" onclick="location.href='lunitide-shell://scan'">扫码配对</button>
+              <p>配对完成后在家走 Wi-Fi、在外走蜂窝流量，自动切换直连。</p>
+              </div></body></html>
         """.trimIndent()
         web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+    }
+
+    /** APP 内扫码配对：扫码结果即配对 URL，复用 https 深链接分支在壳内完成配对。 */
+    private fun startScan() {
+        IntentIntegrator(this)
+            .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
+            .setPrompt("对准电脑端「设置 → 远程访问」里的二维码")
+            .setBeepEnabled(false)
+            .initiateScan()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        val result: IntentResult? =
+            IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
+        val contents = result?.contents
+        if (!contents.isNullOrEmpty()) {
+            handleIntent(Intent(Intent.ACTION_VIEW, Uri.parse(contents)))
+            return
+        }
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     private fun loadWithFailover(url: String) {
@@ -251,6 +277,11 @@ class MainActivity : Activity() {
                     }
                 }
                 "lunitide" -> true // 壳内不需要唤起自己
+                "lunitide-shell" -> {
+                    // 欢迎页「扫码配对」按钮：进入原生扫码页。
+                    if (uri.host == "scan") startScan()
+                    true
+                }
                 else -> false
             }
         }

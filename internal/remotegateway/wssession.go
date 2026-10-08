@@ -24,13 +24,6 @@ const (
 	wsPingInterval     = 45 * time.Second
 	wsDrainTimeout     = 5 * time.Second
 	preResponseLimit   = 64
-	remoteRateWindow   = time.Minute
-	// remoteRateMaxCalls 是每连接每分钟的请求上限。手机实测（0.16.2）证明
-	// 30/min 会误伤正常使用：一次冷启动（providers/sessions/experts 等并发
-	// 预取）就 15-25 个请求，进入会话再发一轮对话即触顶，用户被
-	// REMOTE_RATE_LIMITED 拒绝。120/min 保持「持续 >2 req/s 才拦截」的防
-	// 滥用语义，同时给正常交互留 2.5 倍余量。
-	remoteRateMaxCalls = 120
 )
 
 var wsUpgrader = websocket.Upgrader{
@@ -196,7 +189,6 @@ func (s *Service) serveBridgeSession(ctx context.Context, conn *websocket.Conn, 
 
 	var requests sync.WaitGroup
 	slots := bridge.NewSlotGate(bridge.DefaultGeneralSlots, bridge.DefaultControlSlots, bridge.DefaultSlotWait)
-	limiter := newRateLimiter(remoteRateMaxCalls, remoteRateWindow)
 	defer func() {
 		cancelSession()
 		drained := make(chan struct{})
@@ -220,12 +212,6 @@ func (s *Service) serveBridgeSession(ctx context.Context, conn *websocket.Conn, 
 		var request bridge.Request
 		if err := decodeStrictBridge(frame, &request); err != nil {
 			return
-		}
-		if !limiter.allow() {
-			if err := write(bridge.Failure(request.ID, request.TraceID, "REMOTE_RATE_LIMITED", "远程请求过于频繁，请稍后重试", true)); err != nil {
-				return
-			}
-			continue
 		}
 		if !deviceAllows(device.Scopes, request.Method) {
 			if err := write(bridge.Failure(request.ID, request.TraceID, "REMOTE_SCOPE_DENIED", "该设备未被授权此操作", false)); err != nil {
@@ -354,32 +340,3 @@ func validateStreamEnvelope(event bridge.Event) error {
 	return nil
 }
 
-// rateLimiter 是每连接的滑动窗口计数（PRD：突发 30 req/min）。
-type rateLimiter struct {
-	max    int
-	window time.Duration
-	mu     sync.Mutex
-	stamps []time.Time
-}
-
-func newRateLimiter(max int, window time.Duration) *rateLimiter {
-	return &rateLimiter{max: max, window: window}
-}
-
-func (l *rateLimiter) allow() bool {
-	now := time.Now()
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	kept := l.stamps[:0]
-	for _, stamp := range l.stamps {
-		if now.Sub(stamp) < l.window {
-			kept = append(kept, stamp)
-		}
-	}
-	l.stamps = kept
-	if len(l.stamps) >= l.max {
-		return false
-	}
-	l.stamps = append(l.stamps, now)
-	return true
-}

@@ -52,5 +52,6 @@ android {
 }
 
 dependencies {
-    // 零 AndroidX、零三方库：纯 android.app.Activity + WebView 壳。
+    // 唯一的三方依赖：扫码配对（内置相机扫码 Activity + ZXing 解码）。
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 }
