@@ -180,9 +180,9 @@ func (s *Service) Generate(ctx context.Context, trigger string) (Edition, error)
 		ed.Findings = append(ed.Findings, watermarkFinding(logClock()))
 	} else if prev != nil {
 		ed.Findings = append(ed.Findings, liveFindings(prev.Findings)...)
-		ed.HealthScore = healthScore(ed.Findings, probe)
+		ed.HealthScore = healthScore(ed.Findings)
 	} else {
-		ed.HealthScore = healthScore(findings, probe)
+		ed.HealthScore = healthScore(findings)
 	}
 	ed.ReportMarkdown, ed.ReportHTML = RenderReport(ed)
 	ed.ProductVersion = s.productVersion()

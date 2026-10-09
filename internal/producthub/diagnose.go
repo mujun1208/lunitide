@@ -84,7 +84,7 @@ func refreshFindings(ed Edition) ([]Finding, ProbeScore, int) {
 	if ed.LiveProbe.Total > 0 {
 		return next, ed.LiveProbe, liveHealth(ed.LiveProbe)
 	}
-	return next, probe, healthScore(next, probe)
+	return next, probe, healthScore(next)
 }
 
 func hasBlocking(in []Finding) bool {
@@ -104,7 +104,7 @@ func clearFinding(probe ProbeScore) Finding {
 		fmt.Sprintf("活源覆盖 %d/%d。核对的是页面、设置、媒体动作、插件和动词是否都在当前说明书里。", probe.Passed, probe.Total),
 		"没有缺入口、悬空失败分支或孤儿引用",
 		"没有可执行的目录修复。这一分不代表语音听写、媒体播放、文件落盘或任务做完已经测过。",
-		"活源再变时点「重新检测」。健康分是入口覆盖，不是产品满分。", "clear")
+		"活源再变时点「重新检测」。活源覆盖单列一行；健康分只扣真实问题，没问题就是 100。", "clear")
 }
 
 func coverage(cards []Card, live []Candidate) (ProbeScore, []Finding) {
@@ -167,12 +167,12 @@ func finding(sev, code, key, title, evidence, root, fix, verify, status string) 
 	return f
 }
 
-func healthScore(findings []Finding, probe ProbeScore) int {
-	total := probe.Total
-	if total < 1 {
-		total = 1
-	}
-	score := 100 * probe.Passed / total
+// healthScore grades the stored snapshot on real problems only: every open
+// error or warn finding is a confirmed, solvable issue and deducts; info rows
+// and the exempted codes do not. Catalog coverage is reported separately and
+// is never part of this score — no problem found means 100.
+func healthScore(findings []Finding) int {
+	score := 100
 	for _, f := range findings {
 		if isResolvedFinding(f.Status) || f.ErrorCode == "PH_000" || f.ErrorCode == "PH_014" || f.ErrorCode == "PH_019" || f.ErrorCode == "PH_020" {
 			continue

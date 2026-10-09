@@ -48,7 +48,15 @@ func probeDictate(ctx context.Context) TaskResult {
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 	started := time.Now()
-	refiner := &voice.Refiner{Root: tts.RefEngineDataRoot(), Startup: 20 * time.Second, Budget: 22 * time.Second}
+	// The ASR bundles (sherpa runtime + models) install under <data root>\voice,
+	// mirroring wire.go's PrepareSubdirectory("voice") that feeds NewVoiceService.
+	// RefEngineDataRoot alone is the TTS/data root and would look for the runtime
+	// one level too high, reporting a healthy install as "model missing".
+	root := tts.RefEngineDataRoot()
+	if root != "" {
+		root = filepath.Join(root, "voice")
+	}
+	refiner := &voice.Refiner{Root: root, Startup: 20 * time.Second, Budget: 22 * time.Second}
 	defer refiner.Shutdown()
 	if err := refiner.Ready(ctx); err != nil {
 		return TaskResult{ID: "dictate", Title: "听写", Status: "untested", Evidence: "听写模型未就绪，没有开始识别：" + err.Error()}

@@ -82,7 +82,7 @@ func RenderReport(ed Edition) (markdown, pageHTML string) {
 		fmt.Fprintf(&md, "### [%s] %s · %s\n\n", f.Severity, f.ErrorCode, f.Title)
 		fmt.Fprintf(&md, "- 对象：`%s`  · 状态：%s\n- 证据：%s\n- 根因：%s\n- 改进方案：%s\n- 验证：%s\n\n", f.StableKey, f.Status, f.Evidence, f.RootCause, f.Fix, f.Verify)
 	}
-	md.WriteString("执行净化会再跑失败的那一项。复查通过才改为 fixed，实测分跟着上升。复查仍失败就保持 open，方案和证据换成这一次的原文。目录里缺的入口方法仍由净化直接补上。\n\n")
+	md.WriteString("执行净化会再跑失败的那一项。复查通过才改为 fixed，健康分跟着上升。复查仍失败就保持 open，方案和证据换成这一次的原文。目录里缺的入口方法仍由净化直接补上。\n\n")
 	md.WriteString("## 6. 竞品与前沿\n\n")
 	md.WriteString("图景页两张槽位：竞品对照（必须带来源与日期）与 SMTC/owned runtime 播放核验前沿观察。不计入健康度。\n\n")
 	md.WriteString("## 7. 总结\n\n")
@@ -150,14 +150,14 @@ func diagnosisVerdict(ed Edition) string {
 	if ed.LiveProbe.Total > 0 {
 		extra := ""
 		if reached, skipped := probeStateCounts(ed.Findings); reached > 0 || skipped > 0 {
-			extra = fmt.Sprintf("另有入口已跑到 %d 项、不代跑 %d 项；这两类入口活着或需人工核验，不计入读回，也不算失败。", reached, skipped)
+			extra = fmt.Sprintf("另有入口已跑到 %d 项、不代跑 %d 项；这两类入口活着或需人工核验，不计入读回，也不扣分。", reached, skipped)
 		}
-		fmt.Fprintf(&b, "本轮读回 %d/%d，健康分 %d。%s这个分数含临时库读回，不是本机键鼠、麦克风、真实供应商或真实进程的实测。听写、播放、下载、图片识别若在这一轮重跑，以当次结果为准。日志里对得上原文的故障记在下面。对照来自图景页已选产品，不计入这个分数。\n\n", ed.LiveProbe.Passed, ed.LiveProbe.Total, ed.HealthScore, extra)
+		fmt.Fprintf(&b, "健康分 %d：只扣真实问题——探测失败和日志故障才扣分，未跑完、入口已跑到、不代跑都不扣分；没问题就是 100。本轮读回 %d/%d 是覆盖率，单列不计分。%s读回含临时库，不是本机键鼠、麦克风、真实供应商或真实进程的实测。听写、播放、下载、图片识别若在这一轮重跑，以当次结果为准。日志里对得上原文的故障记在下面。对照来自图景页已选产品，不计入这个分数。\n\n", ed.HealthScore, ed.LiveProbe.Passed, ed.LiveProbe.Total, extra)
 	} else {
 		if cover == "" && ed.CatalogProbe.Total > 0 {
 			cover = fmt.Sprintf("活源覆盖 %d/%d。", ed.CatalogProbe.Passed, ed.CatalogProbe.Total)
 		}
-		fmt.Fprintf(&b, "本轮核对说明书与活源。%s 健康分 %d 是入口覆盖，不是语音听写、媒体播放、文件落盘或任务完成的实测分。\n\n", cover, ed.HealthScore)
+		fmt.Fprintf(&b, "本轮核对说明书与活源。%s 健康分 %d 只扣真实问题，没问题就是 100；这一轮不是语音听写、媒体播放、文件落盘或任务完成的实测，要在对应页面实测。\n\n", cover, ed.HealthScore)
 	}
 	if openErr+openWarn == 0 {
 		b.WriteString("没有可执行的目录修复项。入口对齐之后，功能是否真能做完，要在对应页面实测。\n\n")

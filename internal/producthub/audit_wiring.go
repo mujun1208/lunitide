@@ -90,7 +90,13 @@ func claimedBridges(c Card) []string {
 	seen := map[string]bool{}
 	for _, name := range append(append([]string{}, c.Scaffold.Bridge...), c.Attributes.Tools...) {
 		name = strings.TrimSpace(name)
-		if seen[name] || strings.Count(name, ".") < 1 || strings.HasPrefix(name, "capability.") {
+		// capability.list / capability.roles.get / capability.roles.set are real
+		// registered bridge verbs and must be audited and traced like any other
+		// claimed entry. Capability descriptors (capability.stt.asr and friends)
+		// live in Attributes.Capabilities, which this function never reads, so no
+		// prefix deserves a blanket skip here: every claimed name is checked
+		// against the schema, and only a genuinely missing method is reported.
+		if seen[name] || strings.Count(name, ".") < 1 {
 			continue
 		}
 		seen[name] = true

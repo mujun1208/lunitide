@@ -77,9 +77,17 @@ type Scaffold struct {
 	Runtime  []string `json:"runtime"`
 }
 
+// ProbeScore tallies one live snapshot by outcome. Passed, Failed and Faults
+// are conclusive and grade the health score. Untested, Reached and Skipped
+// carry no conclusive evidence — they are listed as-is and never deduct.
 type ProbeScore struct {
-	Passed int `json:"passed"`
-	Total  int `json:"total"`
+	Passed   int `json:"passed"`
+	Failed   int `json:"failed"`
+	Faults   int `json:"faults"`
+	Untested int `json:"untested"`
+	Reached  int `json:"reached"`
+	Skipped  int `json:"skipped"`
+	Total    int `json:"total"`
 }
 
 type Candidate struct {

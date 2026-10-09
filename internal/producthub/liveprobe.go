@@ -45,20 +45,30 @@ var (
 	}
 )
 
-// ScoreLive is the ring: task passes over tasks plus log faults.
-// Landscape notes are not part of this score.
+// ScoreLive grades the live snapshot on detected problems only. The baseline
+// is 100: a pass is evidence of health, a failed probe or a log fault is a
+// real, solvable problem and deducts proportionally; untested, reached and
+// skipped carry no conclusive evidence and are listed without touching the
+// score. Landscape notes are not part of this score.
 func ScoreLive(tasks []TaskResult, faults []Finding) (ProbeScore, int) {
-	passed := 0
+	var probe ProbeScore
 	for _, task := range tasks {
-		if task.Status == "pass" {
-			passed++
+		switch task.Status {
+		case "pass":
+			probe.Passed++
+		case "fail":
+			probe.Failed++
+		case "untested":
+			probe.Untested++
+		case "reached":
+			probe.Reached++
+		case "skipped":
+			probe.Skipped++
 		}
 	}
-	total := len(tasks) + len(faults)
-	if total < 1 {
-		total = 1
-	}
-	return ProbeScore{Passed: passed, Total: total}, 100 * passed / total
+	probe.Faults = len(faults)
+	probe.Total = len(tasks) + len(faults)
+	return probe, liveHealth(probe)
 }
 
 // TaskFindings turns each real task into a report row.
@@ -74,7 +84,8 @@ func TaskFindings(tasks []TaskResult) []Finding {
 		case "fail":
 			sev, status = "error", "open"
 		case "untested":
-			sev, status = "warn", "open"
+			// 没跑起来不是缺陷：如实列出、净化会重跑，但不按警告计，也不扣健康分。
+			sev, status = "info", "open"
 		case "reached":
 			sev, status = "info", "reached"
 		case "skipped":
@@ -103,7 +114,7 @@ func taskCause(task TaskResult) string {
 		if localModelLengthTimeout(task.Evidence) {
 			return "本机模型目录已核对。服务器文件长度这次没有在时限内拿到，不能据此说下载已经坏了。"
 		}
-		return "这一项没有跑起来，不能算通过"
+		return "这一项这次没有跑起来，没有读回证据。不算失败，也不计通过，不扣健康分。"
 	case "reached":
 		return "处理函数已返回，拒绝原因就是证据。入口活着，但功能没有完整跑完，不能算通过。"
 	case "skipped":
@@ -441,12 +452,19 @@ func catalogRuns(ctx context.Context) []TaskResult {
 	return fn(ctx)
 }
 
+// liveHealth is the health ring: 100 when no real problem was detected, else
+// the pass share of the conclusive outcomes. Untested, reached and skipped
+// never deduct — a check that could not run is not a fault.
 func liveHealth(probe ProbeScore) int {
-	total := probe.Total
-	if total < 1 {
-		total = 1
+	problems := probe.Failed + probe.Faults
+	if problems == 0 {
+		return 100
 	}
-	return 100 * probe.Passed / total
+	conclusive := probe.Passed + problems
+	if conclusive < 1 {
+		return 0
+	}
+	return 100 * probe.Passed / conclusive
 }
 
 func displayedScore(ed Edition, findings []Finding, catalog ProbeScore) (int, ProbeScore, bool) {
@@ -456,14 +474,16 @@ func displayedScore(ed Edition, findings []Finding, catalog ProbeScore) (int, Pr
 	if probe, ok := probeFromFindings(findings); ok {
 		return liveHealth(probe), probe, true
 	}
-	return healthScore(findings, catalog), catalog, false
+	return healthScore(findings), catalog, false
 }
 
-// probeFromFindings rebuilds the measured ring after the snapshot is loaded.
-// The snapshot stores findings, not LiveProbe, so a later export used to
-// print the catalog coverage number next to the real probe rows.
+// probeFromFindings rebuilds the measured counts after the snapshot is loaded
+// or a purify recheck changed a row. The snapshot stores findings, so every
+// recheck moves these counts — and with them the health score. Status tells
+// the outcome; an open error row is a failed probe, an open warn/info row is
+// one that never ran, and a wont_fix row is an accepted, non-deducting item.
 func probeFromFindings(findings []Finding) (ProbeScore, bool) {
-	passed, total := 0, 0
+	var probe ProbeScore
 	for _, f := range findings {
 		if !strings.HasPrefix(f.ErrorCode, "PH_L") {
 			continue
@@ -471,15 +491,27 @@ func probeFromFindings(findings []Finding) (ProbeScore, bool) {
 		if f.ErrorCode == "PH_L90" || f.ErrorCode == "PH_L91" || f.ErrorCode == "PH_L92" || f.ErrorCode == "PH_L99" {
 			continue
 		}
-		total++
-		if f.Status == "pass" || f.Status == "fixed" {
-			passed++
+		probe.Total++
+		switch {
+		case f.Status == "pass" || f.Status == "fixed":
+			probe.Passed++
+		case f.Status == "reached":
+			probe.Reached++
+		case f.Status == "skipped" || f.Status == "wont_fix":
+			probe.Skipped++
+		case strings.HasPrefix(f.ErrorCode, "PH_L1"):
+			// PH_L10..PH_L18 are log faults: real problems quoted from today's log.
+			probe.Faults++
+		case f.Severity == "error":
+			probe.Failed++
+		default:
+			probe.Untested++
 		}
 	}
-	if total == 0 {
+	if probe.Total == 0 {
 		return ProbeScore{}, false
 	}
-	return ProbeScore{Passed: passed, Total: total}, true
+	return probe, true
 }
 
 func liveFindings(in []Finding) []Finding {

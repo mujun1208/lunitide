@@ -1153,13 +1153,13 @@ func without(all, drop []string) []string {
 
 func probeLine(ed Edition) string {
 	if ed.LiveProbe.Total == 0 {
-		return "本轮没有重跑听写、播放、下载和图片识别。当前分数是入口覆盖，不是这四项的实测。点重新检测才会留下实测。"
+		return "本轮没有重跑听写、播放、下载和图片识别。当前健康分只计真实问题；活源覆盖单列，不是这四项的实测。点重新检测才会留下实测。"
 	}
 	extra := ""
 	if reached, skipped := probeStateCounts(ed.Findings); reached > 0 || skipped > 0 {
-		extra = fmt.Sprintf("另有入口已跑到 %d 项（处理函数返回了，入口活着，但功能没有完整跑完，不计入读回）、不代跑 %d 项（会开窗、占麦克风、安装、联网或执行命令，诊断不代执行，要到对应页面人工核验）。", reached, skipped)
+		extra = fmt.Sprintf("另有入口已跑到 %d 项（处理函数返回了，入口活着，但功能没有完整跑完，不计入读回，也不扣分）、不代跑 %d 项（会开窗、占麦克风、安装、联网或执行命令，诊断不代执行，要到对应页面人工核验，不扣分）。", reached, skipped)
 	}
-	return fmt.Sprintf("本轮读回 %d/%d。%s这个数字含临时库读回，不是本机键鼠、麦克风、真实供应商或真实进程的实测。听写、播放、下载、图片识别以这次重跑为准。未通过的列在下面。", ed.LiveProbe.Passed, ed.LiveProbe.Total, extra)
+	return fmt.Sprintf("本轮读回 %d/%d，这是覆盖率，单列不计分；健康分只扣探测失败和日志故障。%s这个数字含临时库读回，不是本机键鼠、麦克风、真实供应商或真实进程的实测。听写、播放、下载、图片识别以这次重跑为准。未通过的列在下面。", ed.LiveProbe.Passed, ed.LiveProbe.Total, extra)
 }
 
 // probeStateCounts tallies the two in-between probe rows: reached (the handler

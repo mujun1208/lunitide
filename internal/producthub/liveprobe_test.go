@@ -17,7 +17,7 @@ func TestLiveScoreCountsUntestedAndLogFaults(t *testing.T) {
 	}
 	faults := ClassifyLog("voice: download : expected 349418188 bytes, server offered 349906910\n")
 	probe, score := ScoreLive(tasks, faults)
-	if probe.Passed != 2 || probe.Total != 5 || score != 40 {
+	if probe.Passed != 2 || probe.Failed != 1 || probe.Faults != 1 || probe.Untested != 1 || probe.Total != 5 || score != 50 {
 		t.Fatalf("probe %+v score %d", probe, score)
 	}
 	found := TaskFindings(tasks)
@@ -42,7 +42,7 @@ func TestReachedAndSkippedStayOutOfThePassCount(t *testing.T) {
 		{ID: "br.navigate", Title: "打开网页", Status: "skipped", Evidence: "不代跑：会打开浏览器窗口"},
 	}
 	probe, score := ScoreLive(tasks, nil)
-	if probe.Passed != 1 || probe.Total != 3 || score != 33 {
+	if probe.Passed != 1 || probe.Total != 3 || score != 100 {
 		t.Fatalf("probe %+v score %d", probe, score)
 	}
 	found := TaskFindings(tasks)
@@ -220,7 +220,7 @@ func TestLoadedFindingsKeepTheMeasuredScore(t *testing.T) {
 		{ErrorCode: "PH_L90", Status: "note"},
 	}
 	score, probe, live := displayedScore(Edition{}, findings, ProbeScore{Passed: 138, Total: 170})
-	if !live || probe.Passed != 3 || probe.Total != 5 || score != 60 {
+	if !live || probe.Passed != 3 || probe.Faults != 1 || probe.Untested != 1 || probe.Total != 5 || score != 75 {
 		t.Fatalf("score %d probe %+v live %v", score, probe, live)
 	}
 }

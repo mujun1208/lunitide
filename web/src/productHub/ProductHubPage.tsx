@@ -294,9 +294,9 @@ function OverviewPane({
   return (
     <div>
       <section className="ph-health">
-        <HealthRing score={score} label={zh ? (overview?.liveChecked ? '实测' : '健康度') : (overview?.liveChecked ? 'Probed' : 'Health')} />
+        <HealthRing score={score} label={zh ? '健康分' : 'Health'} />
         <div>
-          <strong>{zh ? (overview?.liveChecked ? '实测' : '活源覆盖') : (overview?.liveChecked ? 'Probed' : 'Live coverage')} {coverage} · {openWarn} {zh ? '未闭合' : 'open'} · {timeouts} {zh ? '超时' : 'timeout'} · {zh ? '较上次快照 新增' : 'since last snapshot added'} {overview?.added ?? 0} · {zh ? '更新' : 'updated'} {overview?.updated ?? 0} · {zh ? '退役' : 'removed'} {overview?.removed ?? 0}</strong>
+          <strong>{zh ? (overview?.liveChecked ? '读回' : '活源覆盖') : (overview?.liveChecked ? 'Read-back' : 'Live coverage')} {coverage} · {openWarn} {zh ? '未闭合' : 'open'} · {timeouts} {zh ? '超时' : 'timeout'} · {zh ? '较上次快照 新增' : 'since last snapshot added'} {overview?.added ?? 0} · {zh ? '更新' : 'updated'} {overview?.updated ?? 0} · {zh ? '退役' : 'removed'} {overview?.removed ?? 0}</strong>
           <p>{zh ? '版本和已存的一致时，进入后直接显示这一版。功能全景、知识图谱、解剖视图、图景共用这一版。版本不一致，或库里还没有这一版，才按当前产品重新查询并存入当前版本，然后显示这一版的全部内容。点「重新检测」才重跑实测。' : 'When the product version matches the stored edition, opening shows that edition. Panorama, graph, anatomy, and landscape share it. A different version, or an empty store, queries the current product, saves that version, and then shows the full edition. Re-scan is what runs the live probes again.'}</p>
         </div>
         <button type="button" className="ph-detail" onClick={onDetail}>{zh ? '详情' : 'Details'}</button>
@@ -411,7 +411,7 @@ function DiagnosticsPane({
           <strong>{zh ? '诊断报告' : 'Diagnostics'} {reportId(overview?.generatedAt)}</strong>
           <p>{zh ? '快照' : 'snap'} {formatSnapshot(overview?.generatedAt)} · {versionLabel(overview?.editionId)} · {zh ? '打开即对照活源 · 条目' : 'live recount · items'} {active.length}/{findings.length}</p>
         </div>
-        <HealthRing score={overview?.healthScore ?? 0} label={zh ? (overview?.liveChecked ? '实测' : '入口覆盖') : (overview?.liveChecked ? 'Probed' : 'Coverage')} />
+        <HealthRing score={overview?.healthScore ?? 0} label={zh ? '健康分' : 'Health'} />
         <div className="ph-actions">
           <button type="button" onClick={onExport}>{zh ? '导出报告' : 'Export report'}</button>
           <button type="button" className="primary" disabled={busy} onClick={onRefresh}>{zh ? '重新检测' : 'Re-scan'}</button>
@@ -431,11 +431,11 @@ function DiagnosticsPane({
       <p className="ph-note">
         {zh
           ? (overview?.liveChecked
-            ? `实测 ${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}，已跑完并有读回才计通过。${tierNote ? `另有${tierNote}。` : ''}失败、未测，以及日志里对得上原文的故障列在下面。对照用的是图景页已经选好的产品，不计入这个环。`
-            : `还没做过实测。现在这一环仍是入口覆盖（${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}）。点「重新检测」会跑听写、播放、下载和图片识别。`)
+            ? `健康分只扣真实问题：探测失败和日志故障才扣分，未跑完、入口已跑到、不代跑都不扣分，没问题就是 100。本轮读回 ${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'} 是覆盖率，单列不计分。${tierNote ? `另有${tierNote}。` : ''}失败项和日志里对得上原文的故障列在下面。对照用的是图景页已经选好的产品，不计入这个环。`
+            : `还没做过实测。健康分只计真实问题；活源覆盖（${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}）单列不计分。点「重新检测」会跑听写、播放、下载和图片识别。`)
           : (overview?.liveChecked
-            ? `Probed ${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'} — only checks that ran to a read-back count as passed.${tierNote ? ` Also ${tierNote}.` : ''} Failures and log faults are listed below. Comparison uses products already picked on the landscape page and is not part of this ring.`
-            : `No live probe yet. This ring is still catalog coverage (${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}). Re-scan runs dictation, playback, download, and image recognition.`)}
+            ? `The health score only counts real problems: failed probes and log faults deduct, untested, reached and skipped never do — a clean run is 100. Read-back ${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'} is coverage, listed separately.${tierNote ? ` Also ${tierNote}.` : ''} Failures and log faults are listed below. Comparison uses products already picked on the landscape page and is not part of this ring.`
+            : `No live probe yet. The health score only counts real problems; catalog coverage (${overview?.probePassed ?? '—'}/${overview?.probeTotal ?? '—'}) is listed separately. Re-scan runs dictation, playback, download, and image recognition.`)}
       </p>
       <div className="ph-actions">
         <button className="primary" type="button" disabled={busy} onClick={() => onApply()}>{zh ? '执行全部净化' : 'Apply all'}</button>
@@ -496,7 +496,7 @@ function DiagnosticsPane({
       {showFixed ? resolved.map(item => (
         <p key={`${item.error_code}-${item.stable_key}`} className="ph-dim">{item.error_code} · {item.title} · {item.status}</p>
       )) : null}
-      <p className="ph-note">{zh ? '执行净化会再跑失败的那一项。复查通过才记已修复，实测分跟着上升。复查仍失败就留在待处理，方案和证据换成这一次的原文。wont_fix 进人工留底。报告和这一页是同一份。' : 'Purify re-runs a failed check. It is marked fixed only when that check passes, and the measured score moves with it. A failed recheck stays open with the new evidence. The exported report is this page.'}</p>
+      <p className="ph-note">{zh ? '执行净化会再跑失败的那一项。复查通过才记已修复，健康分跟着上升。复查仍失败就留在待处理，方案和证据换成这一次的原文。wont_fix 进人工留底。报告和这一页是同一份。' : 'Purify re-runs a failed check. It is marked fixed only when that check passes, and the health score moves with it. A failed recheck stays open with the new evidence. The exported report is this page.'}</p>
     </div>
   )
 }
