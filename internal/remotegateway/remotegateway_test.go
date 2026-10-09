@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -228,6 +229,50 @@ func TestPairCodeFormat(t *testing.T) {
 	}
 }
 
+// TestOrderHostCandidates 钉死候选排序契约：局域网 IPv4 → 公网 IPv6 →
+// 尾网（100.64.0.0/10）真正垫底——旧版尾网置顶导致 Tailscale 不通时同
+// Wi-Fi 也打不开配对页的回归不许再来。
+func TestOrderHostCandidates(t *testing.T) {
+	got := orderHostCandidates(
+		[]string{"192.168.1.5", "10.0.0.3"},
+		[]string{"2409:8900:1::a", "2409:8900:1::b"},
+		"100.95.14.34",
+	)
+	want := []string{"192.168.1.5", "10.0.0.3", "2409:8900:1::a", "2409:8900:1::b", "100.95.14.34"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("order = %v, want %v", got, want)
+	}
+	if got := orderHostCandidates([]string{"192.168.1.5"}, nil, ""); !reflect.DeepEqual(got, []string{"192.168.1.5"}) {
+		t.Fatalf("single-v4 = %v", got)
+	}
+	if got := orderHostCandidates(nil, []string{"2409:8900:1::a"}, ""); !reflect.DeepEqual(got, []string{"2409:8900:1::a"}) {
+		t.Fatalf("v6-only = %v", got)
+	}
+}
+
+// TestBuildPairURL 钉死二维码 URL 契约：首选 host:47651 + c + fp；al 追加
+// 其余候选逗号分隔（IPv6 冒号原样，fragment 语法合法）；lang 收尾；单候选
+// 不带 al；IPv6 首选时 joinHostPort 补方括号。
+func TestBuildPairURL(t *testing.T) {
+	got := buildPairURL(
+		[]string{"192.168.1.5", "2409:8900:1::a", "100.95.14.34"},
+		"12345678", "aabbccddeeff0011", "zh-CN",
+	)
+	want := "https://192.168.1.5:47651/pair#c=12345678&fp=aabbccddeeff0011&al=2409:8900:1::a,100.95.14.34&lang=zh-CN"
+	if got != want {
+		t.Fatalf("url = %s, want %s", got, want)
+	}
+	if got := buildPairURL([]string{"192.168.1.5"}, "12345678", "aabbccddeeff0011", ""); got != "https://192.168.1.5:47651/pair#c=12345678&fp=aabbccddeeff0011" {
+		t.Fatalf("single-candidate url = %s", got)
+	}
+	if got := buildPairURL(nil, "12345678", "aabbccddeeff0011", "en"); got != "https://127.0.0.1:47651/pair#c=12345678&fp=aabbccddeeff0011&lang=en" {
+		t.Fatalf("no-address fallback url = %s", got)
+	}
+	if got := buildPairURL([]string{"2409:8900:1::a", "192.168.1.5"}, "12345678", "aabbccddeeff0011", ""); got != "https://[2409:8900:1::a]:47651/pair#c=12345678&fp=aabbccddeeff0011&al=192.168.1.5" {
+		t.Fatalf("v6-first url = %s", got)
+	}
+}
+
 func TestServicePairFlowAndLockout(t *testing.T) {
 	ctx := context.Background()
 	handler := &fakeHandler{}
@@ -237,6 +282,7 @@ func TestServicePairFlowAndLockout(t *testing.T) {
 	}
 	defer svc.Close()
 	svc.port = 0
+	svc.firewallBypass = true // 随机端口测试不触碰真实系统防火墙（netsh/UAC）
 	// 未开启时配对码签发必须拒绝。
 	if _, err := svc.IssuePairCode(ctx, ""); err == nil {
 		t.Fatal("pair code issued while disabled")
@@ -322,6 +368,7 @@ func TestHandleApk(t *testing.T) {
 	}
 	defer svc.Close()
 	svc.port = 0
+	svc.firewallBypass = true // 随机端口测试不触碰真实系统防火墙（netsh/UAC）
 	if err := svc.Enable(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -429,6 +476,7 @@ func TestBridgeWSSSession(t *testing.T) {
 	}
 	defer svc.Close()
 	svc.port = 0
+	svc.firewallBypass = true // 随机端口测试不触碰真实系统防火墙（netsh/UAC）
 	if err := svc.Enable(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -542,6 +590,7 @@ func TestRemoteSessionsAndRevokeDisconnect(t *testing.T) {
 	}
 	defer svc.Close()
 	svc.port = 0
+	svc.firewallBypass = true // 随机端口测试不触碰真实系统防火墙（netsh/UAC）
 	if err := svc.Enable(ctx); err != nil {
 		t.Fatal(err)
 	}

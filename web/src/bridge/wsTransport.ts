@@ -11,7 +11,14 @@
 import type { BridgeResponse } from '../generated/bridge'
 import { setTransportOverride, type WebViewTransport } from './client'
 
-export interface RemoteCredentials { wsUrl: string; token: string }
+export interface RemoteCredentials {
+  wsUrl: string
+  token: string
+  /** 网关候选裸地址（IPv4/IPv6，无 scheme/端口；配对结果 addresses 按直连
+   *  可达性排序）：Wi-Fi ↔ 蜂窝切换断线后重连轮换用；旧凭据无此字段仍按
+   *  单地址工作。 */
+  candidates?: string[]
+}
 
 const STORAGE_KEY = 'lunitide:remote-bridge'
 const PENDING_LIMIT = 128
@@ -23,7 +30,12 @@ export function loadRemoteCredentials(): RemoteCredentials | undefined {
     if (!raw) return undefined
     const value = JSON.parse(raw) as Partial<RemoteCredentials>
     if (typeof value.wsUrl !== 'string' || typeof value.token !== 'string' || !value.wsUrl || !value.token) return undefined
-    return { wsUrl: value.wsUrl, token: value.token }
+    const candidates = Array.isArray(value.candidates)
+      ? value.candidates.filter((item): item is string => typeof item === 'string' && item !== '')
+      : []
+    return candidates.length > 0
+      ? { wsUrl: value.wsUrl, token: value.token, candidates }
+      : { wsUrl: value.wsUrl, token: value.token }
   } catch { return undefined }
 }
 export function saveRemoteCredentials(credentials: RemoteCredentials): void {
@@ -37,7 +49,12 @@ export type RemoteTransportState = 'connecting' | 'open' | 'reconnecting' | 'clo
 export type RemoteStateListener = (state: RemoteTransportState) => void
 
 export class WsTransport implements WebViewTransport {
-  private readonly url: string
+  /** 候选 wsUrl 列表：首选地址置顶，其余由网关候选裸地址换 host 派生。
+   *  每次连接失败轮换到下一个（round-robin 循环覆盖全部地址）——手机在
+   *  Wi-Fi ↔ 蜂窝之间切换导致断线时，重连自动落到可达地址；回前台重试
+   *  （visibilitychange）不轮换，优先当前地址。 */
+  private readonly candidateUrls: string[]
+  private candidateIdx = 0
   private readonly token: string
   private ws: WebSocket | undefined
   private pending: string[] = []
@@ -48,8 +65,12 @@ export class WsTransport implements WebViewTransport {
   private retryTimer: number | undefined
   private disposed = false
 
-  constructor(wsUrl: string, token: string) {
-    this.url = wsUrl
+  constructor(wsUrl: string, token: string, candidates?: string[]) {
+    this.candidateUrls = [wsUrl]
+    for (const address of candidates ?? []) {
+      const swapped = swapWsHost(wsUrl, address)
+      if (swapped !== wsUrl && !this.candidateUrls.includes(swapped)) this.candidateUrls.push(swapped)
+    }
     this.token = token
     this.connect(false)
     document.addEventListener('visibilitychange', this.onVisibility)
@@ -105,7 +126,7 @@ export class WsTransport implements WebViewTransport {
     if (this.disposed) return
     this.setState(reconnect ? 'reconnecting' : 'connecting')
     // 浏览器 WebSocket 无法自定义 Authorization 头，令牌走 ?token= 查询参数。
-    const url = appendToken(this.url, this.token)
+    const url = appendToken(this.candidateUrls[this.candidateIdx], this.token)
     let ws: WebSocket
     try { ws = new WebSocket(url) } catch { this.scheduleRetry(); return }
     this.ws = ws
@@ -136,6 +157,10 @@ export class WsTransport implements WebViewTransport {
   private scheduleRetry(): void {
     if (this.disposed) return
     this.setState('reconnecting')
+    // 单候选无从轮换；多候选时每次失败前进一个，循环覆盖全部地址。
+    if (this.candidateUrls.length > 1) {
+      this.candidateIdx = (this.candidateIdx + 1) % this.candidateUrls.length
+    }
     if (this.retryTimer !== undefined) return
     this.retryTimer = window.setTimeout(() => {
       this.retryTimer = undefined
@@ -161,13 +186,23 @@ function appendToken(wsUrl: string, token: string): string {
   } catch { return wsUrl }
 }
 
+// 把 wsUrl 的 host 换成网关候选裸地址（IPv6 补方括号），端口/路径/协议
+// 不动；解析失败返回原 wsUrl（该候选会在连接时自然失败并轮换到下一个）。
+export function swapWsHost(wsUrl: string, address: string): string {
+  try {
+    const url = new URL(wsUrl)
+    url.hostname = address.includes(':') ? `[${address}]` : address
+    return url.toString()
+  } catch { return wsUrl }
+}
+
 // activateRemoteTransport 激活远程模式：安装 WSS 传输 override，之后所有
-// 单例 bridge（provider/project/session/...）自动改走远程网关。重复调用
-// 会先停用旧连接。
+// 单例 bridge（provider/project/session/...）自动改走远程网关。candidates
+// 是网关候选裸地址，断线重连轮换用。重复调用会先停用旧连接。
 let activeTransport: WsTransport | undefined
-export function activateRemoteTransport(wsUrl: string, token: string, onStateChange?: RemoteStateListener): WsTransport {
+export function activateRemoteTransport(wsUrl: string, token: string, candidates?: string[], onStateChange?: RemoteStateListener): WsTransport {
   deactivateRemoteTransport()
-  const transport = new WsTransport(wsUrl, token)
+  const transport = new WsTransport(wsUrl, token, candidates)
   if (onStateChange) transport.onStateChange(onStateChange)
   setTransportOverride(transport)
   activeTransport = transport

@@ -14,7 +14,7 @@ installVisibilityRestore()
 // WSS 传输 override（桌面端 localStorage 无此键，路径不触发）。
 const remoteCredentials = loadRemoteCredentials()
 if (remoteCredentials) {
-  activateRemoteTransport(remoteCredentials.wsUrl, remoteCredentials.token)
+  activateRemoteTransport(remoteCredentials.wsUrl, remoteCredentials.token, remoteCredentials.candidates)
   // Service Worker 仅在移动伴侣模式注册：桌面 WebView2 走命名管道，
   // SW 缓存只会干扰本地资源加载。
   void navigator.serviceWorker?.register('/sw.js').catch(() => {})

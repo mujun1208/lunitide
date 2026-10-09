@@ -46,6 +46,7 @@ func TestE2EServeForBrowser(t *testing.T) {
 	defer svc.Close()
 	svc.rendererDirOverride = dist
 	svc.port = 0 // 本机 47651 常被正在运行的桌面实例占用；e2e 用随机端口。
+	svc.firewallBypass = true // e2e 不触碰真实防火墙：生产规则名+随机端口会建出删不掉的规则，还挡住生产 Enable 的幂等检查
 	if err := svc.Enable(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -305,6 +306,7 @@ func TestE2EMobileServe(t *testing.T) {
 	defer svc.Close()
 	svc.rendererDirOverride = dist
 	svc.port = 0
+	svc.firewallBypass = true // 同上：移动端 e2e 也不触碰真实系统防火墙
 	if err := svc.Enable(ctx); err != nil {
 		t.Fatal(err)
 	}

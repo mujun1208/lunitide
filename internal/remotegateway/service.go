@@ -60,6 +60,12 @@ type Service struct {
 	// 文件位置解析 web/dist）。
 	rendererDirOverride string
 
+	// firewallBypass 跳过防火墙规则的确保与删除（同包测试注入）：测试用
+	// 随机端口起真实网关，若不旁路会用生产规则名建出随机端口的规则，
+	// 之后非管理员删不掉，还把生产 Enable 的同名幂等检查挡在外面。
+	// 生产路径恒为 false，只在 Enable/Disable 前由测试显式置位。
+	firewallBypass bool
+
 	// media 是媒体票据代理（/media/assets/<token>）。手机端没有 WebView2
 	// 的 media.lunitide.local 虚拟主机，前端把 playbackUrl 重写到网关同源
 	// 路径后由此服务资产。ticket 本身即 bearer 凭证（随机 + TTL + 硬上限），
@@ -203,12 +209,14 @@ func (s *Service) Disable(ctx context.Context) error {
 		_ = listener.Close()
 	}
 	// 关闭路径静默删除防火墙规则：删除同样需要管理员权限，但不弹 UAC
-	// （监听已停，残留规则无放行目标；下次 Enable 会重建）。
-	go func() {
-		if err := removeFirewallRule(s.port); err != nil {
-			log.Printf("remotegateway: firewall rule remove: %v", err)
-		}
-	}()
+	// （监听已停，残留规则没有放行目标；下次 Enable 会重建）。测试旁路。
+	if !s.firewallBypass {
+		go func() {
+			if err := removeFirewallRule(s.port); err != nil {
+				log.Printf("remotegateway: firewall rule remove: %v", err)
+			}
+		}()
+	}
 	return s.store.ConfigSet(ctx, "enabled", false)
 }
 
@@ -248,12 +256,15 @@ func (s *Service) startLockedServer(ctx context.Context, allowElevate bool) erro
 	port := s.port
 	s.mu.Unlock()
 	// 防火墙规则异步确保：netsh 慢或失败都不阻塞网关启动（规则已存在时
-	// 幂等跳过；失败只记日志，局域网直连可能仍可用）。
-	go func() {
-		if err := ensureFirewallRule(port, allowElevate); err != nil {
-			log.Printf("remotegateway: firewall rule: %v", err)
-		}
-	}()
+	// 幂等跳过；失败只记日志，局域网直连可能仍可用）。测试旁路，避免
+	// 触碰真实系统防火墙。
+	if !s.firewallBypass {
+		go func() {
+			if err := ensureFirewallRule(port, allowElevate); err != nil {
+				log.Printf("remotegateway: firewall rule: %v", err)
+			}
+		}()
+	}
 	return nil
 }
 
@@ -317,6 +328,9 @@ type PairCodeInfo struct {
 // IssuePairCode 签发一次性配对码并生成二维码内容。仅在远程访问开启时
 // 可用；二维码 URL 携带首选地址 + 码 + 证书指纹（16 位短指纹）+ 桌面当前
 // 语言（lang=zh-CN/en，配对页据此把语言写入手机 localStorage）。
+// al 追加首选地址之外的全部候选（逗号分隔、hostAddresses 原始格式）：
+// 安卓壳解析后并行探测全部候选再加载第一个可达的——单地址二维码在首选
+// 地址不可达（如蜂窝流量下局域网 IPv4、或尾网未登录）时配对页永远打不开。
 func (s *Service) IssuePairCode(ctx context.Context, lang string) (PairCodeInfo, error) {
 	s.mu.Lock()
 	enabled := s.enabled && s.server != nil
@@ -335,14 +349,7 @@ func (s *Service) IssuePairCode(ctx context.Context, lang string) (PairCodeInfo,
 		return PairCodeInfo{}, err
 	}
 	addresses := hostAddresses()
-	host := "127.0.0.1"
-	if len(addresses) > 0 {
-		host = addresses[0]
-	}
-	url := fmt.Sprintf("https://%s/pair#c=%s&fp=%s", joinHostPort(host), code, fmtFingerprint(fp))
-	if lang == "zh-CN" || lang == "en" {
-		url += "&lang=" + lang
-	}
+	url := buildPairURL(addresses, code, fmtFingerprint(fp), lang)
 	png, err := qrcode.Encode(url, qrcode.Medium, 512)
 	if err != nil {
 		return PairCodeInfo{}, err
@@ -778,4 +785,24 @@ func joinHostPort(host string) string {
 		return net.JoinHostPort(host, fmt.Sprint(DefaultPort))
 	}
 	return net.JoinHostPort(host, fmt.Sprint(DefaultPort))
+}
+
+// buildPairURL 拼配对二维码 URL：首选候选（hostAddresses 排序后的第一个）
+// 作 host + 一次性码 + 16 位证书指纹；al 追加其余全部候选（逗号分隔、裸
+// 地址格式，IPv6 的冒号在 fragment 中合法），安卓壳解析后与二维码 host
+// 合并去重、并行探测后加载第一个可达地址；lang 由配对页写入手机
+// localStorage。抽成纯函数是为了钉死 al 契约的确定性单测。
+func buildPairURL(addresses []string, code, fingerprint, lang string) string {
+	host := "127.0.0.1"
+	if len(addresses) > 0 {
+		host = addresses[0]
+	}
+	url := fmt.Sprintf("https://%s/pair#c=%s&fp=%s", joinHostPort(host), code, fingerprint)
+	if len(addresses) > 1 {
+		url += "&al=" + strings.Join(addresses[1:], ",")
+	}
+	if lang == "zh-CN" || lang == "en" {
+		url += "&lang=" + lang
+	}
+	return url
 }

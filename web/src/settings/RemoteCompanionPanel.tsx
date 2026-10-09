@@ -50,16 +50,25 @@ function useCountdown(expiresAt: string | undefined): string {
   return `${minutes}:${seconds}`
 }
 
-// 地址分类（hostAddresses 已剔除环回/链路本地）：IPv4 = 同一 Wi-Fi 局域网
-// 可达；全局 IPv6 = 手机蜂窝流量直连家里电脑的候选（APP 端自动轮换）。
-export function classifyAddresses(addresses: readonly string[]): { lan: string[]; cellular: string[] } {
+// 地址分类（hostAddresses 已剔除环回/链路本地）：局域网 IPv4 = 同一 Wi-Fi
+// 可达；全局 IPv6 = 手机蜂窝流量直连家里电脑的候选（APP 端自动轮换）；
+// 100.64.0.0/10（CGNAT 段）= Tailscale/ZeroTier 等尾网地址——依赖手机也
+// 登录同一虚拟组网（国内环境登录/中继常被阻断），只作最后兜底，单独
+// 归类，不冒充局域网地址误导用户。
+export function classifyAddresses(addresses: readonly string[]): { lan: string[]; cellular: string[]; tailnet: string[] } {
   const lan: string[] = []
   const cellular: string[] = []
+  const tailnet: string[] = []
   for (const address of addresses) {
-    if (address.includes(':')) cellular.push(address)
-    else lan.push(address)
+    if (address.includes(':')) { cellular.push(address); continue }
+    const parts = address.split('.')
+    if (parts.length === 4 && Number(parts[0]) === 100) {
+      const second = Number(parts[1])
+      if (Number.isInteger(second) && second >= 64 && second <= 127) { tailnet.push(address); continue }
+    }
+    lan.push(address)
   }
-  return { lan, cellular }
+  return { lan, cellular, tailnet }
 }
 
 export function RemoteCompanionPanel({ bridge = remoteCompanionBridge }: { bridge?: RemoteCompanionBridge }): React.JSX.Element {
@@ -225,6 +234,7 @@ export function RemoteCompanionPanel({ bridge = remoteCompanionBridge }: { bridg
                 本机已有公网 IPv6：<code>{reachability.cellular.join('、')}</code>。
                 手机在外用蜂窝流量时，Lunitide APP 会自动切换到该地址直连家里电脑。
                 {reachability.lan.length > 0 && <> 局域网地址（仅同一 Wi-Fi 可达）：{reachability.lan.join('、')}。</>}
+                {reachability.tailnet.length > 0 && <> 尾网地址（需手机登录同一虚拟组网，仅作兜底）：{reachability.tailnet.join('、')}。</>}
                 <br />若外网连不上：多为路由器拦截 IPv6 入站——在路由器设置中放行
                 「IPv6 防火墙/入站过滤」对端口 {status?.port ?? 47651} 的 TCP 连接；也可先用手机浏览器
                 在蜂窝网络下直接访问上述 IPv6 地址自检。
@@ -233,6 +243,8 @@ export function RemoteCompanionPanel({ bridge = remoteCompanionBridge }: { bridg
             ) : (
               <>
                 未检测到公网 IPv6 地址，手机仅能在同一 Wi-Fi（局域网）下连接。
+                {reachability.tailnet.length > 0 && <>检测到尾网地址（{reachability.tailnet.join('、')}）：
+                  仅在手机与电脑登录同一虚拟组网时可达（国内环境登录/中继常被阻断），不建议作为外网方案。</>}
                 <br />需要外网直连：在光猫/路由器开启 IPv6（多数运营商默认下发），重新打开远程访问即可。
               </>
             )}

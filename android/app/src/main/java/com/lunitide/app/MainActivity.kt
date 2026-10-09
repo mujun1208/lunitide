@@ -39,10 +39,11 @@ import javax.net.ssl.X509TrustManager
  * 配合网关 sw.js 的在线优先策略，电脑升级后 APP 自动访问最新版）。
  *
  * 关键职责：
- * 1. 深链接接管配对：lunitide://open?origin=..&fp=.. 与 https://<ip>:<port>/pair#c=..&fp=..
+ * 1. 深链接接管配对：lunitide://open?origin=..&fp=.. 与 https://<ip>:<port>/pair#c=..&fp=..&al=..
  * 2. 自签证书信任：SHA-256 指纹比对（配对 URL 内 fp 锚定 / TOFU 持久化）
- * 3. 多候选地址轮换：配对时网关下发 addresses（IPv4 + 公网 IPv6），
- *    蜂窝网络下局域网 IPv4 不可达自动切换 IPv6 直连家里电脑。
+ * 3. 多候选地址轮换：二维码 fragment 的 al / 配对结果的 addresses 携带全
+ *    候选（局域网 IPv4 → 公网 IPv6 → 尾网），首载前并行探测、加载第一个
+ *    可达地址；蜂窝流量下局域网 IPv4 不可达自动切公网 IPv6 直连家里电脑。
  */
 class MainActivity : Activity() {
 
@@ -65,6 +66,8 @@ class MainActivity : Activity() {
     /** 候选可达性并行探测：origin -> 可达；缺键 = 探测仍在途（仅主线程读写）。 */
     private val probeResults = mutableMapOf<String, Boolean>()
     private var probeGen = 0
+    /** 探测先行进行中（仅主线程）：在途结果只服务首载决策，不入 failover。 */
+    private var probing = false
     private var lastProbedOrigin: String? = null
     /** 探测专用信任所有证书的 TLS 工厂：探测只测链路通不通，真实性仍由 WebView 指纹校验把关。 */
     private val trustAllFactory: SSLSocketFactory by lazy {
@@ -129,13 +132,20 @@ class MainActivity : Activity() {
             }
             "https" -> {
                 // 系统相机扫码后 chooser 选择 Lunitide：配对 URL 原样进壳完成配对。
-                // 保留旧候选（家里扫的公网 IPv6 在蜂窝下仍有效），新地址提前。
+                // fragment 的 al 是网关按直连可达性排序下发的全候选（局域网 IPv4
+                // → 公网 IPv6 → 尾网垫底），合并顺序：二维码 host → al → 旧保存
+                // 候选（此前配对记住的地址在换网络后仍可能有效）。
                 val origin = originOf(data)
                 val fp = fragmentParam(data, "fp")
                 val host = data.host ?: ""
-                val merged = (listOf(host) + decodeCandidates().filter { it != host }).filter { it.isNotEmpty() }
+                val al = fragmentParam(data, "al")
+                    ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
+                    ?: emptyList()
+                val merged = (listOf(host) + al + decodeCandidates())
+                    .filter { it.isNotEmpty() }
+                    .distinct()
                 saveGateway(origin, fp, merged)
-                loadWithFailover(data.toString())
+                probeFirstThenLoad(data.toString())
             }
             else -> loadSavedOrEmpty()
         }
@@ -173,7 +183,7 @@ class MainActivity : Activity() {
         val list = mutableListOf(origin)
         alts.orEmpty().forEach { alt ->
             val candidate = normalizeOrigin(alt)
-            if (candidate != null && candidate != origin) list.add(candidate)
+            if (candidate != null && candidate != origin && !list.contains(candidate)) list.add(candidate)
         }
         candidates = list
         candidateIdx = 0
@@ -195,7 +205,7 @@ class MainActivity : Activity() {
             return
         }
         rebuildCandidates(origin, decodeCandidates())
-        loadWithFailover("$origin/")
+        probeFirstThenLoad("$origin/")
     }
 
     private fun decodeCandidates(): List<String> {
@@ -318,6 +328,62 @@ class MainActivity : Activity() {
         loadWithFailover(target)
     }
 
+    /** TLS 链路探测：只测通不通（信任所有证书），真实性由 WebView 指纹校验把关。 */
+    private fun probeReachable(origin: String): Boolean = runCatching {
+        val conn = URL("$origin/").openConnection() as HttpsURLConnection
+        conn.connectTimeout = PROBE_TIMEOUT_MS.toInt()
+        conn.readTimeout = PROBE_TIMEOUT_MS.toInt()
+        conn.instanceFollowRedirects = false
+        conn.sslSocketFactory = trustAllFactory
+        conn.hostnameVerifier = HostnameVerifier { _, _ -> true }
+        conn.connect()
+        conn.responseCode >= 0
+    }.getOrDefault(false)
+
+    /** 探测先行：并行探测全部候选（3.5s 预算），第一个探明可达的立即可载
+     *  （候选顺序即网关排序：局域网 IPv4 → 公网 IPv6 → 尾网，同 Wi-Fi 下
+     *  v4 探测最快返回自然胜出）；全部不可达时退回原 URL 交给 WebView 错误
+     *  回调与 failover 兜底。扫码配对与启动回连两条首载路径使用——蜂窝下
+     *  首选 v4 黑洞时不再干等 8s 超时才切公网 IPv6。 */
+    private fun probeFirstThenLoad(url: String) {
+        val primary = originOfUrl(url)
+        if (primary == null || candidates.size <= 1) {
+            loadWithFailover(url)
+            return
+        }
+        lastUrl = url
+        probing = true
+        probeGen++
+        val gen = probeGen
+        probeResults.clear()
+        lastProbedOrigin = primary
+        val outstanding = candidates.toMutableSet()
+        candidates.forEach { origin ->
+            Thread {
+                val ok = probeReachable(origin)
+                if (gen == probeGen && !isDestroyed) {
+                    runOnUiThread {
+                        if (gen != probeGen || !probing) return@runOnUiThread
+                        probeResults[origin] = ok
+                        outstanding.remove(origin)
+                        when {
+                            ok -> {
+                                probing = false
+                                probeGen++
+                                val idx = candidates.indexOf(origin)
+                                if (idx >= 0) loadCandidate(idx) else loadWithFailover(url)
+                            }
+                            outstanding.isEmpty() -> {
+                                probing = false
+                                loadWithFailover(url)
+                            }
+                        }
+                    }
+                }
+            }.start()
+        }
+    }
+
     /** 主页面开始加载时，对其余候选并行做可达性探测（蜂窝下不被失效地址串行拖慢 8s/个）。
      *  探测只测链路通不通：信任所有证书，真实性仍由 WebView 的指纹校验把关。 */
     private fun startProbes(loadedUrl: String) {
@@ -330,16 +396,7 @@ class MainActivity : Activity() {
         candidates.forEach { origin ->
             if (origin == loaded) return@forEach
             Thread {
-                val ok = runCatching {
-                    val conn = URL("$origin/").openConnection() as HttpsURLConnection
-                    conn.connectTimeout = PROBE_TIMEOUT_MS.toInt()
-                    conn.readTimeout = PROBE_TIMEOUT_MS.toInt()
-                    conn.instanceFollowRedirects = false
-                    conn.sslSocketFactory = trustAllFactory
-                    conn.hostnameVerifier = HostnameVerifier { _, _ -> true }
-                    conn.connect()
-                    conn.responseCode >= 0
-                }.getOrDefault(false)
+                val ok = probeReachable(origin)
                 if (gen == probeGen && !isDestroyed) {
                     runOnUiThread {
                         if (gen != probeGen) return@runOnUiThread

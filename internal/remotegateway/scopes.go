@@ -120,10 +120,11 @@ func hashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// hostAddresses 枚举本机可被手机直连的候选地址：尾网（Tailscale 等）地址
-// 置顶——它在任何网络下都能直达本机，作为二维码首选地址后手机流量扫码
-// 也能直接加载配对页；其次非环回 IPv4，最后全局 IPv6（蜂窝直连备选）。
-// 返回顺序即二维码候选顺序。
+// hostAddresses 枚举本机可被手机直连的候选地址：局域网 IPv4 置顶（零依赖、
+// 同一 Wi-Fi 必达），其次全局 IPv6（手机蜂窝流量免 Wi-Fi 直连家里的公网
+// IPv6，国内运营商蜂窝默认下发 IPv6），尾网（Tailscale/ZeroTier 的
+// 100.64.0.0/10）垫底——它要求手机也登录同一尾网，国内环境登录/中继常被
+// 阻断，只作为最后兜底。返回顺序即二维码候选顺序。
 func hostAddresses() []string {
 	addresses := []string{}
 	ifaces, err := net.Interfaces()
@@ -151,7 +152,7 @@ func hostAddresses() []string {
 			}
 			if ip4 := ip.To4(); ip4 != nil {
 				// 100.64.0.0/10（CGNAT）是 Tailscale/ZeroTier 等尾网的地址段：
-				// 不受局域网/光猫防火墙限制，任意网络可直达。取第一个置顶。
+				// 依赖手机端同尾网在线，排序垫底，仅在其余通道全不可达时兜底。
 				if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
 					if tailnet == "" {
 						tailnet = ip4.String()
@@ -164,8 +165,18 @@ func hostAddresses() []string {
 			}
 		}
 	}
+	return orderHostCandidates(addresses, v6, tailnet)
+}
+
+// orderHostCandidates 按直连可达性给候选排序：局域网 IPv4 → 公网 IPv6 →
+// 尾网垫底。抽成纯函数是因为 hostAddresses 枚举本机真实网卡，测试机地址
+// 形状不定；排序契约（同 Wi-Fi 必达的 IPv4 优先、蜂窝可直连的 IPv6 次之、
+// 尾网最后兜底）在这里钉死。
+func orderHostCandidates(lan []string, v6 []string, tailnet string) []string {
+	ordered := append([]string{}, lan...)
+	ordered = append(ordered, v6...)
 	if tailnet != "" {
-		addresses = append([]string{tailnet}, addresses...)
+		ordered = append(ordered, tailnet)
 	}
-	return append(addresses, v6...)
+	return ordered
 }

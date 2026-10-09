@@ -56,14 +56,10 @@ func runNetsh(args []string) error {
 }
 
 // runNetshElevated 经 PowerShell 弹 UAC 以管理员身份执行 netsh 并等待
-// 完成。用户拒绝 UAC 或防火墙服务不可用时返回错误。
+// 完成，退出码由 netshElevateScript 透传（netsh 失败会作为错误返回）。
+// 用户拒绝 UAC 或防火墙服务不可用时同样返回错误。
 func runNetshElevated(args []string) error {
-	quoted := make([]string, 0, len(args))
-	for _, arg := range args {
-		quoted = append(quoted, "'"+strings.ReplaceAll(arg, "'", "''")+"'")
-	}
-	script := fmt.Sprintf("Start-Process -FilePath netsh -ArgumentList @(%s) -Verb RunAs -Wait -WindowStyle Hidden", strings.Join(quoted, ","))
-	out, err := exec.Command("powershell", "-NoProfile", "-Command", script).CombinedOutput()
+	out, err := exec.Command("powershell", "-NoProfile", "-Command", netshElevateScript(args)).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("elevate netsh %s: %w: %s", strings.Join(args, " "), err, clipOutput(out))
 	}

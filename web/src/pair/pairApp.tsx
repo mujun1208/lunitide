@@ -164,7 +164,13 @@ export function PairApp() {
     setBusy(true); setError('')
     const outcome = await pairWithGateway({ code: normalized, deviceName: deviceName.trim(), platform: detectPlatform(navigator.userAgent) })
     if (!outcome.ok) { setError(outcome.error); setBusy(false); return }
-    saveRemoteCredentials({ wsUrl: `wss://${location.host}/bridge`, token: outcome.result.deviceToken })
+    // 候选地址随凭据一并持久化：Wi-Fi 断开切蜂窝后，WsTransport 断线重连
+    // 轮换候选（v4 → IPv6 → 尾网）自动落回可达地址，无需重新扫码。
+    saveRemoteCredentials({
+      wsUrl: `wss://${location.host}/bridge`,
+      token: outcome.result.deviceToken,
+      candidates: outcome.result.addresses,
+    })
     try { await navigator.serviceWorker?.register('/sw.js') } catch { /* SW 失败不阻塞配对结果 */ }
     // 轮询通知（M4）需要浏览器通知权限；拒绝不阻塞配对，仅无通知。
     try { if (typeof Notification !== 'undefined' && Notification.permission === 'default') void Notification.requestPermission() } catch { /* 权限请求失败忽略 */ }

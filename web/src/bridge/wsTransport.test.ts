@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { WsTransport, activateRemoteTransport, deactivateRemoteTransport, clearRemoteCredentials, loadRemoteCredentials, saveRemoteCredentials, getRemoteTransport } from './wsTransport'
+import { WsTransport, activateRemoteTransport, deactivateRemoteTransport, clearRemoteCredentials, loadRemoteCredentials, saveRemoteCredentials, getRemoteTransport, swapWsHost } from './wsTransport'
 import { resolveHostTransport } from './client'
 
 class FakeWebSocket {
@@ -114,6 +114,42 @@ describe('WsTransport', () => {
     vi.useRealTimers()
     transport.dispose()
   })
+
+  it('rotates through candidate ws urls (v4 → IPv6 → tailnet) on each reconnect', () => {
+    vi.useFakeTimers()
+    // 候选含与当前 host 相同的地址（配对结果 addresses 含首选地址）：必须去重。
+    const transport = new WsTransport('wss://192.0.2.10:47651/bridge', 't', ['2409:8900::1', '100.95.14.34', '192.0.2.10'])
+    expect(FakeWebSocket.instances[0].url).toContain('wss://192.0.2.10:47651/bridge')
+    FakeWebSocket.instances[0].open()
+    FakeWebSocket.instances[0].drop()
+    vi.advanceTimersByTime(1_000)
+    expect(FakeWebSocket.instances[1].url).toContain('wss://[2409:8900::1]:47651/bridge')
+    FakeWebSocket.instances[1].open()
+    FakeWebSocket.instances[1].drop()
+    vi.advanceTimersByTime(2_000)
+    expect(FakeWebSocket.instances[2].url).toContain('wss://100.95.14.34:47651/bridge')
+    FakeWebSocket.instances[2].drop()
+    vi.advanceTimersByTime(4_000)
+    // 轮换回到首选地址（去重后共 3 个候选）。
+    expect(FakeWebSocket.instances[3].url).toContain('wss://192.0.2.10:47651/bridge')
+    transport.dispose()
+  })
+
+  it('keeps round-robin cycling across repeated drops and reopens', () => {
+    vi.useFakeTimers()
+    const transport = new WsTransport('wss://192.0.2.10:47651/bridge', 't', ['2409:8900::1'])
+    FakeWebSocket.instances[0].open()
+    FakeWebSocket.instances[0].drop()
+    vi.advanceTimersByTime(1_000)
+    expect(FakeWebSocket.instances[1].url).toContain('wss://[2409:8900::1]:47651/bridge')
+    FakeWebSocket.instances[1].open()
+    // IPv6 瞬断（如服务器重启）：round-robin 轮回首选 v4；v4 在蜂窝下失败
+    // 后会再轮回 IPv6——循环保证每个地址都被周期性重试。
+    FakeWebSocket.instances[1].drop()
+    vi.advanceTimersByTime(2_000)
+    expect(FakeWebSocket.instances[2].url).toContain('wss://192.0.2.10:47651/bridge')
+    transport.dispose()
+  })
 })
 
 describe('remote credentials and activation', () => {
@@ -138,6 +174,28 @@ describe('remote credentials and activation', () => {
     expect(loadRemoteCredentials()).toBeUndefined()
     localStorage.setItem('lunitide:remote-bridge', JSON.stringify({ wsUrl: 1, token: null }))
     expect(loadRemoteCredentials()).toBeUndefined()
+  })
+
+  it('persists candidate addresses with credentials and sanitizes them on load', () => {
+    // 正常往返：候选裸地址原样保存（语义与壳保存的候选、深链接 addresses 一致）。
+    saveRemoteCredentials({ wsUrl: 'wss://192.0.2.10:47651/bridge', token: 'tok', candidates: ['2409:8900::1', '100.95.14.34'] })
+    expect(loadRemoteCredentials()).toEqual({ wsUrl: 'wss://192.0.2.10:47651/bridge', token: 'tok', candidates: ['2409:8900::1', '100.95.14.34'] })
+    clearRemoteCredentials()
+    // 脏数据防御：非字符串/空串候选剔除，全无效则退化为单地址凭据。
+    localStorage.setItem('lunitide:remote-bridge', JSON.stringify({ wsUrl: 'wss://host/bridge', token: 'tok', candidates: [42, '', '2409:8900::1'] }))
+    expect(loadRemoteCredentials()).toEqual({ wsUrl: 'wss://host/bridge', token: 'tok', candidates: ['2409:8900::1'] })
+    localStorage.setItem('lunitide:remote-bridge', JSON.stringify({ wsUrl: 'wss://host/bridge', token: 'tok', candidates: 'not-an-array' }))
+    expect(loadRemoteCredentials()).toEqual({ wsUrl: 'wss://host/bridge', token: 'tok' })
+    clearRemoteCredentials()
+  })
+
+  it('swaps the ws host for bare gateway addresses (IPv6 gets brackets)', () => {
+    expect(swapWsHost('wss://192.0.2.10:47651/bridge', '2409:8900:1::a')).toBe('wss://[2409:8900:1::a]:47651/bridge')
+    expect(swapWsHost('wss://192.0.2.10:47651/bridge', '100.95.14.34')).toBe('wss://100.95.14.34:47651/bridge')
+    // 与当前 host 相同的候选：返回原串（构造器据此去重）。
+    expect(swapWsHost('wss://192.0.2.10:47651/bridge', '192.0.2.10')).toBe('wss://192.0.2.10:47651/bridge')
+    // 非法 wsUrl：原样返回，连接时自然失败并轮换下一个。
+    expect(swapWsHost('::not-a-url', '1.2.3.4')).toBe('::not-a-url')
   })
 
   it('activates the transport override for every bridge singleton', () => {
