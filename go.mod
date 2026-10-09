@@ -2,7 +2,7 @@ module github.com/lunitide/lunitide
 
 go 1.26.0
 
-toolchain go1.26.6
+toolchain go1.26.9
 
 require (
 	filippo.io/edwards25519 v1.2.0
