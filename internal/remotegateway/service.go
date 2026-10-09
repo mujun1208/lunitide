@@ -20,6 +20,7 @@ import (
 
 	qrcode "github.com/skip2/go-qrcode"
 
+	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/ipc"
 	"github.com/lunitide/lunitide/internal/mediaapp"
 	"github.com/oklog/ulid/v2"
@@ -85,6 +86,21 @@ type Service struct {
 	// 配对码本身 5 分钟过期且单次使用，重启清零可接受）。
 	pairMu       sync.Mutex
 	pairFailures map[string]*pairLockState
+
+	// httpSlots 是 /bridge/http 的全网关 slot 闸门：WSS 每连接一个 gate，
+	// HTTP 无会话概念，共享一个等价于「网关总并发」上限。惰性初始化，
+	// 与 NewService 的可选性解耦。
+	httpSlots     *bridge.SlotGate
+	httpSlotsOnce sync.Once
+}
+
+// httpSlotGate 惰性构建 /bridge/http 的并发闸门（general/control 槽位与
+// WSS 会话闸门同额）。
+func (s *Service) httpSlotGate() *bridge.SlotGate {
+	s.httpSlotsOnce.Do(func() {
+		s.httpSlots = bridge.NewSlotGate(bridge.DefaultGeneralSlots, bridge.DefaultControlSlots, bridge.DefaultSlotWait)
+	})
+	return s.httpSlots
 }
 
 // ActiveSession 是一条在线远程连接（remote.sessions.list 展示项）。
@@ -235,6 +251,7 @@ func (s *Service) startLockedServer(ctx context.Context, allowElevate bool) erro
 	mux.HandleFunc("/api/info", s.handleInfo)
 	mux.HandleFunc("/api/pair", s.handlePair)
 	mux.HandleFunc("/bridge", s.serveBridgeWS)
+	mux.HandleFunc("/bridge/http", s.serveBridgeHTTP)
 	mux.HandleFunc("/app/", s.handleApk)
 	mux.HandleFunc("/media/assets/", s.handleMediaAsset)
 	mux.HandleFunc("/", s.handleStatic)

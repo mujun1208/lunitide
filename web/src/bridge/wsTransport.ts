@@ -1,5 +1,10 @@
-// 移动伴侣远程传输：把 WebViewTransport 语义（postMessage + message 事件）
-// 承载到 WSS 网关连接上。桥接帧协议不变——WS 文本消息即一帧 JSON。
+// 移动伴侣远程凭据存取 + 已弃用的 WSS 传输。产品代码自 0.17.7 起统一改用
+// fetchTransport.ts（HTTPS NDJSON 流式桥）：0.17.6 实测安卓壳内 WebSocket
+// 升级在部分网络栈下静默失败（同一 WebView 里 HTTPS 正常、/bridge WSS 零
+// 连接），详见 fetchTransport.ts 文件头。本文件继续提供凭据 load/save/clear、
+// swapWsHost 与状态监听类型（fetchTransport 与配对页在用）；下方的
+// WsTransport 类仅测试覆盖，产品代码不得再接线——接回即回退到静默失败的
+// WSS 路径。桥接帧协议不变——WS 文本消息即一帧 JSON。
 //
 // 生命周期：
 // - 构造即发起连接；connecting 期间的 postMessage 进入有界待发队列，
@@ -48,6 +53,8 @@ export function clearRemoteCredentials(): void {
 export type RemoteTransportState = 'connecting' | 'open' | 'reconnecting' | 'closed'
 export type RemoteStateListener = (state: RemoteTransportState) => void
 
+// 已弃用（0.17.7 起产品路径走 fetchTransport）：仅保留供测试与历史参考，
+// 严禁在新代码接线。
 export class WsTransport implements WebViewTransport {
   /** 候选 wsUrl 列表：首选地址置顶，其余由网关候选裸地址换 host 派生。
    *  每次连接失败轮换到下一个（round-robin 循环覆盖全部地址）——手机在

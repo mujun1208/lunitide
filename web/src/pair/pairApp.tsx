@@ -4,7 +4,8 @@
 // 配对成功即注册 Service Worker，之后 PWA 图标打开的是完整产品界面。
 // 挂载逻辑在 pairEntry.tsx（本模块保持可测试的纯导出）。
 import React, { useEffect, useMemo, useState } from 'react'
-import { saveRemoteCredentials } from '../bridge/wsTransport'
+import { loadRemoteCredentials, saveRemoteCredentials, clearRemoteCredentials } from '../bridge/wsTransport'
+import { probeWithCredentials } from '../bridge/gate'
 
 export interface PairHash { code: string; fingerprint: string; lang?: 'zh-CN' | 'en' }
 
@@ -113,6 +114,11 @@ export function PairApp() {
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
   const [pairInfo, setPairInfo] = useState<PairSuccess | null>(null)
+  // 可用性闸门：'checking'（探活中）→ 'passed'（放行进入系统）/
+  // 'failed'（拦截，给出重新扫码出口）。用户标准：进入正式系统就必须
+  // 可用，否则退回重新扫描配对——配对成功 ≠ 桥可用（0.17.6 教训）。
+  const [gate, setGate] = useState<'checking' | 'passed' | 'failed'>('checking')
+  const [gateError, setGateError] = useState('')
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null)
   // Android 浏览器（非壳）场景探测网关是否带 APP 安装包（/app/lunitide.apk）。
   const [apkAvailable, setApkAvailable] = useState(false)
@@ -171,8 +177,9 @@ export function PairApp() {
     setBusy(true); setError('')
     const outcome = await pairWithGateway({ code: normalized, deviceName: deviceName.trim(), platform: detectPlatform(navigator.userAgent) })
     if (!outcome.ok) { setError(outcome.error); setBusy(false); return }
-    // 候选地址随凭据一并持久化：Wi-Fi 断开切蜂窝后，WsTransport 断线重连
-    // 轮换候选（v4 → IPv6 → 尾网）自动落回可达地址，无需重新扫码。
+    // 候选地址随凭据一并持久化：Wi-Fi 断开切蜂窝后，FetchTransport 断线
+    // 重连轮换候选（IPv6 → v4 → 尾网，网关 orderHostCandidates 排序）
+    // 自动落回可达地址，无需重新扫码。
     saveRemoteCredentials({
       wsUrl: `wss://${location.host}/bridge`,
       token: outcome.result.deviceToken,
@@ -183,6 +190,22 @@ export function PairApp() {
     try { if (typeof Notification !== 'undefined' && Notification.permission === 'default') void Notification.requestPermission() } catch { /* 权限请求失败忽略 */ }
     setPairInfo(outcome.result)
     setDone(true); setBusy(false)
+    // 可用性闸门：放行「进入系统」前用刚保存的凭据探活整条桥链路。
+    runGate({
+      wsUrl: `wss://${location.host}/bridge`,
+      token: outcome.result.deviceToken,
+      candidates: outcome.result.addresses,
+    })
+  }
+
+  // 闸门探活：失败拦截进入系统（failed 视图给出重新扫码出口），成功放行。
+  const runGate = (credentials: { wsUrl: string; token: string; candidates?: string[] }) => {
+    setGate('checking'); setGateError('')
+    void probeWithCredentials(credentials).then(outcome => {
+      if (outcome.ok) { setGate('passed'); return }
+      setGate('failed')
+      setGateError(outcome.error)
+    })
   }
 
   // 「在 Lunitide APP 中打开」：把本设备授权（token）与候选地址经本机
@@ -194,8 +217,58 @@ export function PairApp() {
       + `&addresses=${encodeURIComponent((pairInfo.addresses ?? []).join(','))}`
     : ''
 
+  // 闸门失败视图：不进入系统，给「重新扫码配对」出口（用户标准：进入
+  // 正式系统就必须可用，否则退回重新扫描配对）。壳内走 lunitide-shell://
+  // rescan（壳侧清网关凭据 + 回欢迎页拉起原生扫码）；浏览器清本机凭据
+  // 回配对表单。「重试验证」保留凭据复探（网络瞬断场景，配对码已消费，
+  // 重试比重扫省一步）。
+  if (done && gate === 'failed') {
+    const shell = isShellApp(navigator.userAgent)
+    return (
+      <div className="pair-card">
+        <img className="pair-logo" src="/brand/icon-192.png" alt="Lunitide" />
+        <h1>无法连接这台电脑</h1>
+        <p className="pair-sub">{gateError}</p>
+        <p className="pair-hint">
+          配对已完成，但与电脑的连接验证未通过，暂不能进入系统。<br />
+          请确认电脑端 Lunitide 正在运行且手机网络可达，然后重新扫码配对。
+        </p>
+        {shell ? (
+          <a className="pair-btn" href="lunitide-shell://rescan" onClick={() => clearRemoteCredentials()}>重新扫码配对</a>
+        ) : (
+          <button
+            className="pair-btn"
+            onClick={() => {
+              clearRemoteCredentials()
+              setDone(false); setPairInfo(null); setGate('checking'); setGateError('')
+              setCode(''); setError('')
+            }}
+          >
+            重新扫码配对
+          </button>
+        )}
+        <button className="pair-open" onClick={() => {
+          const saved = loadRemoteCredentials()
+          if (saved) runGate(saved)
+        }}>重试验证</button>
+      </div>
+    )
+  }
+
   if (done) {
     const shell = isShellApp(navigator.userAgent)
+    // 探活中：不放行「进入 Lunitide」（先验证后进入，不许进入一个
+    // 全屏报错的系统）。探活通过后 fall through 到完整成功页。
+    if (gate === 'checking') {
+      return (
+        <div className="pair-card">
+          <img className="pair-logo" src="/brand/icon-192.png" alt="Lunitide" />
+          <h1>配对成功</h1>
+          <p className="pair-sub">正在验证与电脑的连接…</p>
+          <p className="pair-hint"><span className="spinner" aria-hidden="true" /> 验证通过后即可进入系统。</p>
+        </div>
+      )
+    }
     const guidance = installGuidance(detectPlatform(navigator.userAgent), installPrompt !== null)
     return (
       <div className="pair-card">

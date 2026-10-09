@@ -39,7 +39,7 @@ export function startRemoteNotify(poll: () => Promise<NotifiedSession[]>, notify
           }
         }
         baseline = new Map(items.map(item => [item.id, item.updatedAt]))
-      } catch { /* 断线由 WsTransport 负责重连，这里静默 */ }
+      } catch { /* 断线由远程传输负责重连，这里静默 */ }
     }
     if (!stopped) timer = setTimeout(() => void tick(), intervalMs)
   }

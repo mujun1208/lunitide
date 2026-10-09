@@ -325,7 +325,7 @@ export function createProviderBridge(transport: WebViewTransport, defaultDeadlin
 const earlyListeners:Array<(event:MessageEvent<BridgeResponse>)=>void>=[]
 let boundHost:WebViewTransport|undefined
 // 远程传输 override：移动伴侣 PWA 激活后，全部单例 bridge 从 WebView2
-// 切到 WSS 网关（桌面端永不设置，行为不变）。
+// 切到远程网关传输（0.17.7 起 HTTPS 流式桥；桌面端永不设置，行为不变）。
 let transportOverride:WebViewTransport|undefined
 function host():WebViewTransport|undefined{
  if(transportOverride)return transportOverride

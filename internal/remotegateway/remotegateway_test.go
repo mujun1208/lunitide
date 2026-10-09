@@ -229,16 +229,17 @@ func TestPairCodeFormat(t *testing.T) {
 	}
 }
 
-// TestOrderHostCandidates 钉死候选排序契约：局域网 IPv4 → 公网 IPv6 →
-// 尾网（100.64.0.0/10）真正垫底——旧版尾网置顶导致 Tailscale 不通时同
-// Wi-Fi 也打不开配对页的回归不许再来。
+// TestOrderHostCandidates 钉死候选排序契约：公网 IPv6 → 局域网 IPv4 →
+// 尾网（100.64.0.0/10）真正垫底。IPv6 置顶钉死「蜂窝流量可扫码/可下载」
+//（局域网 IPv4 在蜂窝下不可达，公网 IPv6 双网可达）；旧版 IPv4 置顶导致
+// 不连 Wi-Fi 时浏览器打不开配对页的回归不许再来。
 func TestOrderHostCandidates(t *testing.T) {
 	got := orderHostCandidates(
 		[]string{"192.168.1.5", "10.0.0.3"},
 		[]string{"2409:8900:1::a", "2409:8900:1::b"},
 		"100.95.14.34",
 	)
-	want := []string{"192.168.1.5", "10.0.0.3", "2409:8900:1::a", "2409:8900:1::b", "100.95.14.34"}
+	want := []string{"2409:8900:1::a", "2409:8900:1::b", "192.168.1.5", "10.0.0.3", "100.95.14.34"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("order = %v, want %v", got, want)
 	}

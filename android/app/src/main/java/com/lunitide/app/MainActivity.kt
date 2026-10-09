@@ -290,14 +290,17 @@ class MainActivity : Activity() {
     }
 
     /** APP 内扫码配对：扫码结果即配对 URL，复用 https 深链接分支在壳内完成配对。
-     *  setOrientationLocked(false) 允许竖屏扫码（zxing 默认强制横屏，用户
-     * 必须把手机横过来才能扫，体验极差）。 */
+     *  竖屏由 PortraitCaptureActivity（清单锁 portrait）保证——库内置
+     *  CaptureActivity 清单锁 sensorLandscape，setOrientationLocked(false)
+     *  对它无效（0.17.6 横屏回归根因），setCaptureActivity 指向自定义子类
+     *  才能竖屏：扫描线水平、不自动转横屏。 */
     private fun startScan() {
         IntentIntegrator(this)
             .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
             .setPrompt("对准电脑端「设置 → 远程访问」里的二维码")
             .setBeepEnabled(false)
             .setOrientationLocked(false)
+            .setCaptureActivity(PortraitCaptureActivity::class.java)
             .initiateScan()
     }
 
@@ -600,10 +603,11 @@ class MainActivity : Activity() {
         when (state) {
             "open" -> cancelConnectionFailTimer()
             "connecting", "reconnecting" -> scheduleConnectionFailTimer()
-            "closed" -> {
-                cancelConnectionFailTimer()
-                renderConnectError()
-            }
+            // 'closed' 只伴随 dispose（页面卸载/传输主动停用），不是连接
+            // 失败——只取消计时，不弹错误页。0.17.6 曾在 closed 时立即弹
+            // 错误页，把配对成功后的正常页面抢走；「连不上」由
+            // connecting/reconnecting 的 15s 计时覆盖，closed 抢跑只会误伤。
+            "closed" -> cancelConnectionFailTimer()
         }
     }
 
