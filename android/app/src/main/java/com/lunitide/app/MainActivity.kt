@@ -82,6 +82,10 @@ class MainActivity : Activity() {
     private var backPressedAt = 0L
     /** 浏览器配对后经 lunitide://open 传入的设备令牌：首次加载网关页时注入 localStorage。 */
     private var pendingToken: String? = null
+    /** 远程模式连接失败定时器：WsTransport 通知 'reconnecting' 后启动，
+     *  超时仍未 'open' 则认为电脑不可达，显示连接错误页（不白屏）。 */
+    private var connectionFailTimer: Runnable? = null
+    private val CONNECTION_FAIL_MS = 15_000L
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -179,6 +183,16 @@ class MainActivity : Activity() {
         rebuildCandidates(origin, alts)
     }
 
+    /** 清除已保存的网关凭据：回到欢迎页重新扫码。电脑换网络、被吊销、
+     *  或配对失败后必须清除旧凭据，否则停留在旧地址上永远连不上。 */
+    private fun clearGateway() {
+        prefs.edit().clear().apply()
+        candidates = emptyList()
+        candidateIdx = 0
+        probeResults.clear()
+        lastProbedOrigin = null
+    }
+
     private fun rebuildCandidates(origin: String, alts: List<String>?) {
         val list = mutableListOf(origin)
         alts.orEmpty().forEach { alt ->
@@ -217,6 +231,7 @@ class MainActivity : Activity() {
     }
 
     private fun renderWelcome() {
+        val ver = versionName
         val html = """
             <!doctype html><html><head><meta charset="utf-8">
             <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -224,12 +239,14 @@ class MainActivity : Activity() {
               body{font-family:system-ui,sans-serif;background:#10141c;color:#e8ecf4;
                    display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
               .card{max-width:320px;padding:32px 24px;text-align:center;line-height:1.7}
-              h1{font-size:20px;margin:0 0 12px}
+              h1{font-size:20px;margin:0 0 4px}
+              .ver{font-size:12px;color:#6b7591;margin:0 0 12px}
               p{font-size:14px;color:#9aa7bd;margin:0 0 8px}
               .scan-btn{display:inline-block;margin:16px 0 12px;padding:12px 40px;font-size:16px;
                    color:#10141c;background:#7aa2ff;border:none;border-radius:8px}
             </style></head><body><div class="card">
               <h1>Lunitide</h1>
+              <p class="ver">v$ver</p>
               <p>扫描电脑端「设置 → 远程访问」里的二维码，即可连接你的电脑。</p>
               <button class="scan-btn" onclick="location.href='lunitide-shell://scan'">扫码配对</button>
               <p>配对完成后在家走 Wi-Fi、在外走蜂窝流量，自动切换直连。</p>
@@ -239,9 +256,12 @@ class MainActivity : Activity() {
     }
 
     /** 所有候选地址都连不上：渲染原生错误页（重扫码/重试出口），
-     *  不再停留在 WebView 系统错误页或白屏上。 */
+     *  不再停留在 WebView 系统错误页或白屏上。「清除并重新配对」会删除
+     *  已保存的网关凭据，回到欢迎页重新扫码——配对失败/电脑换网络/吊销
+     *  后必须走这条，不能停留在旧凭据的白屏上。 */
     private fun renderConnectError() {
         val tried = candidates.size.coerceAtLeast(1)
+        val ver = versionName
         val html = """
             <!doctype html><html><head><meta charset="utf-8">
             <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -249,30 +269,35 @@ class MainActivity : Activity() {
               body{font-family:system-ui,sans-serif;background:#10141c;color:#e8ecf4;
                    display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
               .card{max-width:320px;padding:32px 24px;text-align:center;line-height:1.7}
-              h1{font-size:20px;margin:0 0 12px}
+              h1{font-size:20px;margin:0 0 4px}
+              .ver{font-size:12px;color:#6b7591;margin:0 0 12px}
               p{font-size:14px;color:#9aa7bd;margin:0 0 8px}
               .btn{display:block;margin:10px auto;padding:12px 0;width:220px;font-size:16px;
                    color:#10141c;background:#7aa2ff;border:none;border-radius:8px}
               .btn.ghost{background:transparent;color:#7aa2ff;border:1px solid #7aa2ff}
             </style></head><body><div class="card">
               <h1>连不上电脑</h1>
+              <p class="ver">v$ver</p>
               <p>已尝试全部 $tried 个已知地址，均无法到达。</p>
               <p>· 确认电脑端「设置 → 远程访问」已开启<br>
                  · 手机与电脑连同一 Wi-Fi 后重试<br>
                  · 电脑网络支持公网 IPv6 时，手机流量也可直连</p>
-              <button class="btn" onclick="location.href='lunitide-shell://scan'">重新扫码配对</button>
+              <button class="btn" onclick="location.href='lunitide-shell://rescan'">清除并重新扫码配对</button>
               <button class="btn ghost" onclick="location.href='lunitide-shell://retry'">重试连接</button>
               </div></body></html>
         """.trimIndent()
         web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
     }
 
-    /** APP 内扫码配对：扫码结果即配对 URL，复用 https 深链接分支在壳内完成配对。 */
+    /** APP 内扫码配对：扫码结果即配对 URL，复用 https 深链接分支在壳内完成配对。
+     *  setOrientationLocked(false) 允许竖屏扫码（zxing 默认强制横屏，用户
+     * 必须把手机横过来才能扫，体验极差）。 */
     private fun startScan() {
         IntentIntegrator(this)
             .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
             .setPrompt("对准电脑端「设置 → 远程访问」里的二维码")
             .setBeepEnabled(false)
+            .setOrientationLocked(false)
             .initiateScan()
     }
 
@@ -431,10 +456,12 @@ class MainActivity : Activity() {
                 }
                 "lunitide" -> true // 壳内不需要唤起自己
                 "lunitide-shell" -> {
-                    // 欢迎页/连接错误页按钮：scan 进原生扫码页；retry 从头轮换候选重连。
+                    // 欢迎页/连接错误页按钮：scan 进原生扫码页；retry 从头轮换候选重连；
+                    // rescan 清除已保存凭据后回欢迎页扫码（电脑换网络/被吊销/配对失败后用）。
                     when (uri.host) {
                         "scan" -> startScan()
                         "retry" -> loadSavedOrEmpty()
+                        "rescan" -> { clearGateway(); renderWelcome(); startScan() }
                     }
                     true
                 }
@@ -557,6 +584,39 @@ class MainActivity : Activity() {
                 }
             }
         }
+
+        /** WsTransport 连接状态变化通知：壳据此判断远程模式是否已连上电脑。
+         *  'open' = 已连上（取消失败计时）；'connecting'/'reconnecting' = 连接中
+         *  （15s 内未 open 则判定不可达，弹连接错误页，不白屏）；'closed' = 已断开。
+         *  此前 WsTransport 静默重连、上层 bridge 请求超时后界面空白，用户无从
+         *  得知是连不上还是界面卡死——这条桥把连接状态拉到壳层，失败有出口。 */
+        @JavascriptInterface
+        fun notifyConnectionState(state: String) {
+            runOnUiThread { onRemoteConnectionState(state) }
+        }
+    }
+
+    private fun onRemoteConnectionState(state: String) {
+        when (state) {
+            "open" -> cancelConnectionFailTimer()
+            "connecting", "reconnecting" -> scheduleConnectionFailTimer()
+            "closed" -> {
+                cancelConnectionFailTimer()
+                renderConnectError()
+            }
+        }
+    }
+
+    private fun scheduleConnectionFailTimer() {
+        cancelConnectionFailTimer()
+        val task = Runnable { renderConnectError() }
+        connectionFailTimer = task
+        handler.postDelayed(task, CONNECTION_FAIL_MS)
+    }
+
+    private fun cancelConnectionFailTimer() {
+        connectionFailTimer?.let { handler.removeCallbacks(it) }
+        connectionFailTimer = null
     }
 
     @Deprecated("Deprecated in Java")
@@ -574,6 +634,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         cancelTimeout()
+        cancelConnectionFailTimer()
         web.destroy()
         super.onDestroy()
     }

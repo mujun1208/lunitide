@@ -65,13 +65,17 @@ export class WsTransport implements WebViewTransport {
   private retryTimer: number | undefined
   private disposed = false
 
-  constructor(wsUrl: string, token: string, candidates?: string[]) {
+  constructor(wsUrl: string, token: string, candidates?: string[], onStateChange?: RemoteStateListener) {
     this.candidateUrls = [wsUrl]
     for (const address of candidates ?? []) {
       const swapped = swapWsHost(wsUrl, address)
       if (swapped !== wsUrl && !this.candidateUrls.includes(swapped)) this.candidateUrls.push(swapped)
     }
     this.token = token
+    // 状态监听必须在 connect 之前注册：构造即发起连接，'connecting' 状态
+    // 会在 connect 内同步触发，晚注册会漏掉首态（壳层的连接失败计时依赖
+    // 'connecting'/'reconnecting' 启动）。
+    if (onStateChange) this.onStateChange(onStateChange)
     this.connect(false)
     document.addEventListener('visibilitychange', this.onVisibility)
   }
@@ -202,8 +206,8 @@ export function swapWsHost(wsUrl: string, address: string): string {
 let activeTransport: WsTransport | undefined
 export function activateRemoteTransport(wsUrl: string, token: string, candidates?: string[], onStateChange?: RemoteStateListener): WsTransport {
   deactivateRemoteTransport()
-  const transport = new WsTransport(wsUrl, token, candidates)
-  if (onStateChange) transport.onStateChange(onStateChange)
+  // onStateChange 直传构造器，确保首态 'connecting' 不被漏掉。
+  const transport = new WsTransport(wsUrl, token, candidates, onStateChange)
   setTransportOverride(transport)
   activeTransport = transport
   return transport

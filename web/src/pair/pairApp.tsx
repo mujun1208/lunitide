@@ -116,6 +116,8 @@ export function PairApp() {
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null)
   // Android 浏览器（非壳）场景探测网关是否带 APP 安装包（/app/lunitide.apk）。
   const [apkAvailable, setApkAvailable] = useState(false)
+  // 网关版本号：APK 下载文件名带版本号（用户一眼分辨新旧），从 /api/info 取。
+  const [appVersion, setAppVersion] = useState('')
 
   useEffect(() => {
     // 桌面语言随二维码带来，立即写入本机（用户扫完码语言即就位，
@@ -127,6 +129,11 @@ export function PairApp() {
 
   useEffect(() => {
     if (isShellApp(navigator.userAgent)) return
+    // 取版本号用于下载文件名；失败回退无版本号文件名。
+    fetch('/api/info')
+      .then(r => r.ok ? r.json() : null)
+      .then(info => { if (info?.version) setAppVersion(String(info.version)) })
+      .catch(() => { /* 忽略 */ })
     fetch('/app/lunitide.apk', { method: 'HEAD' })
       .then(response => { if (response.ok) setApkAvailable(true) })
       .catch(() => { /* 网关无安装包：保持快捷方式引导 */ })
@@ -247,18 +254,74 @@ export function PairApp() {
     )
   }
 
+  const isShell = isShellApp(navigator.userAgent)
+  const apkFilename = appVersion ? `Lunitide-Android-${appVersion}.apk` : 'Lunitide.apk'
+  const showDownloadFirst = !isShell && apkAvailable
+
+  // 浏览器扫码用户：主推「下载安装 APP」（先装后配对），配对表单降级为
+  // 次要入口——此前直接让浏览器配对，用户装了 APP 后还得重新扫，流程绕。
+  // 壳内用户已装 APP，直接走配对表单。
   return (
     <div className="pair-card">
       <img className="pair-logo" src="/brand/icon-192.png" alt="Lunitide" />
       <h1>Lunitide 移动伴侣</h1>
-      <p className="pair-sub">扫描电脑端「移动伴侣」二维码来到这里。<br />确认下方指纹与电脑端显示一致，然后完成配对。</p>
-      {fromHash?.fingerprint && (
-        <div className="fp-box">
-          电脑身份指纹<br />
-          <code>{fromHash.fingerprint}</code><br />
-          请与电脑端显示的指纹比对一致后再配对
-        </div>
+
+      {showDownloadFirst ? (
+        <>
+          <p className="pair-sub">
+            请先安装 Lunitide APP，安装完成后打开 APP，用 APP 内的扫码功能扫描电脑端二维码完成配对。
+          </p>
+          {fromHash?.fingerprint && (
+            <div className="fp-box">
+              电脑身份指纹<br />
+              <code>{fromHash.fingerprint}</code>
+            </div>
+          )}
+          <a className="pair-btn" href="/app/lunitide.apk" download={apkFilename}>
+            下载安装 Lunitide APP
+          </a>
+          <p className="pair-hint">
+            下载后打开安装（需允许「未知来源/安装未知应用」）。安装完成后回到 APP，
+            点击首页「扫码配对」扫描电脑端二维码即可，无需在浏览器中配对。
+          </p>
+          <details style={{ marginTop: 16 }}>
+            <summary className="pair-open" style={{ cursor: 'pointer' }}>继续用浏览器配对（不推荐）</summary>
+            <div style={{ marginTop: 12 }}>
+              {renderPairForm(code, setCode, deviceName, setDeviceName, error, busy, submit)}
+            </div>
+          </details>
+        </>
+      ) : (
+        <>
+          <p className="pair-sub">扫描电脑端「移动伴侣」二维码来到这里。<br />确认下方指纹与电脑端显示一致，然后完成配对。</p>
+          {fromHash?.fingerprint && (
+            <div className="fp-box">
+              电脑身份指纹<br />
+              <code>{fromHash.fingerprint}</code><br />
+              请与电脑端显示的指纹比对一致后再配对
+            </div>
+          )}
+          {renderPairForm(code, setCode, deviceName, setDeviceName, error, busy, submit)}
+        </>
       )}
+
+      <p className="pair-hint">配对码 5 分钟内有效且只能使用一次；设备授权 180 天，可随时在电脑端吊销。</p>
+    </div>
+  )
+}
+
+// 配对表单抽离：浏览器降级入口与壳内主入口共用同一份表单。
+function renderPairForm(
+  code: string,
+  setCode: (v: string) => void,
+  deviceName: string,
+  setDeviceName: (v: string) => void,
+  error: string,
+  busy: boolean,
+  submit: () => void,
+): React.ReactNode {
+  return (
+    <>
       <input
         type="text"
         inputMode="numeric"
@@ -277,17 +340,10 @@ export function PairApp() {
         disabled={busy}
       />
       <div className="pair-error" role="alert">{error}</div>
-      <button className="pair-btn" onClick={() => void submit()} disabled={busy || !/^\d{8}$/.test(code)}>
+      <button className="pair-btn" onClick={submit} disabled={busy || !/^\d{8}$/.test(code)}>
         {busy && <span className="spinner" aria-hidden="true" />}
         {busy ? '配对中…' : '完成配对'}
       </button>
-      {apkAvailable && !isShellApp(navigator.userAgent) && (
-        <>
-          <a className="pair-open" href="/app/lunitide.apk" download="Lunitide.apk">先安装 Lunitide APP（推荐）</a>
-          <p className="pair-hint">先装 APP 再配对：安装后重新扫码，选择用 Lunitide 打开，配对与使用都在 APP 内完成。</p>
-        </>
-      )}
-      <p className="pair-hint">配对码 5 分钟内有效且只能使用一次；设备授权 180 天，可随时在电脑端吊销。</p>
-    </div>
+    </>
   )
 }

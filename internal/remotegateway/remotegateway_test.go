@@ -409,6 +409,11 @@ func TestHandleApk(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); ct != "application/vnd.android.package-archive" {
 		t.Fatalf("content-type = %q", ct)
 	}
+	// Content-Disposition 文件名带版本号：用户一眼分辨新旧版本。
+	wantDisp := `attachment; filename="Lunitide-Android-0.0.0-test.apk"`
+	if got := rec.Header().Get("Content-Disposition"); got != wantDisp {
+		t.Fatalf("content-disposition = %q, want %q", got, wantDisp)
+	}
 	if !bytes.Equal(rec.Body.Bytes(), payload) {
 		t.Fatalf("apk body mismatch: %d bytes", rec.Body.Len())
 	}

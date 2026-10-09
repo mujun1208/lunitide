@@ -14,7 +14,15 @@ installVisibilityRestore()
 // WSS 传输 override（桌面端 localStorage 无此键，路径不触发）。
 const remoteCredentials = loadRemoteCredentials()
 if (remoteCredentials) {
-  activateRemoteTransport(remoteCredentials.wsUrl, remoteCredentials.token, remoteCredentials.candidates)
+  // 连接状态实时通知安卓壳：壳据此判断远程模式是否已连上电脑。
+  // 'connecting'/'reconnecting' 后 15s 内未 'open'，壳会弹连接错误页
+  // （重新扫码/重试），避免 WsTransport 静默重连时界面白屏、用户无从
+  // 得知是连不上还是卡死。仅在壳内（有 LunitideShell 桥）生效，浏览器
+  // 端无此桥不影响。
+  const shell = (window as unknown as { LunitideShell?: { notifyConnectionState?(state: string): void } }).LunitideShell
+  activateRemoteTransport(remoteCredentials.wsUrl, remoteCredentials.token, remoteCredentials.candidates, state => {
+    try { shell?.notifyConnectionState?.(state) } catch { /* 壳桥调用失败不阻塞传输 */ }
+  })
   // Service Worker 仅在移动伴侣模式注册：桌面 WebView2 走命名管道，
   // SW 缓存只会干扰本地资源加载。
   void navigator.serviceWorker?.register('/sw.js').catch(() => {})

@@ -756,6 +756,10 @@ func (s *Service) handleApk(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/vnd.android.package-archive")
 	w.Header().Set("Cache-Control", "no-cache")
+	// 下载文件名带版本号：用户一眼能看出装的是不是最新版（此前一律
+	// lunitide.apk，覆盖安装时无法判断新旧）。Content-Disposition 优先于
+	// URL 末段，浏览器下载时使用此文件名。
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="Lunitide-Android-%s.apk"`, s.version))
 	http.ServeFile(w, r, full)
 }
 
