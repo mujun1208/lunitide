@@ -1,2 +1,0 @@
-﻿afterPick=True
-afterPickPlay=True

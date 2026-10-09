@@ -1,2 +1,0 @@
-﻿afterRealPick=True
-afterRealPlay=True

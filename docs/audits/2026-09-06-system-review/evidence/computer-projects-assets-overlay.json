@@ -1,6 +1,0 @@
-{
-  "Replace": {
-    "<repo>\\internal\\app\\zz_audit_computer_projects_assets_probe_test.go": "<repo>\\docs\\audits\\2026-09-06-system-review\\evidence\\computer_projects_assets_probe_test.go.txt",
-    "<repo>\\internal\\ccapp\\zz_audit_computer_control_probe_test.go": "<repo>\\docs\\audits\\2026-09-06-system-review\\evidence\\computer_control_probe_test.go.txt"
-  }
-}

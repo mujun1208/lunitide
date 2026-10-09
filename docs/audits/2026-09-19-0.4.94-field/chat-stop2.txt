@@ -1,1 +1,0 @@
-﻿stillStop=False endedHint=True afterLines=102

@@ -1,2 +1,0 @@
-﻿reopenHost=True engine=True
-autoPause=False autoPlayBtn=False mini= hostAlive=True

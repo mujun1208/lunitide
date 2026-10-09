@@ -1,2 +1,0 @@
-ok  	github.com/lunitide/lunitide/internal/storage/sqlite	42.965s
-ok  	github.com/lunitide/lunitide/internal/meetings	41.527s

@@ -1,3 +1,0 @@
-{"type":"started"}
-{"type":"assistant","message":{"content":[{"type":"text","text":"creating hello.txt"}]}}
-{"type":"result","text":"done"}

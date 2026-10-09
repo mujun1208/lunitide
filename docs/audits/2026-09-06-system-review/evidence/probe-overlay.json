@@ -1,8 +1,0 @@
-{
-  "Replace": {
-    "<repo>\\internal\\datasourceapp\\zz_audit_datasource_probe_test.go": "<repo>\\docs\\audits\\2026-09-06-system-review\\evidence\\datasource_probe_test.go.txt",
-    "<repo>\\internal\\storage\\sqlite\\zz_audit_transaction_probe_test.go": "<repo>\\docs\\audits\\2026-09-06-system-review\\evidence\\transaction_probe_test.go.txt",
-    "<repo>\\internal\\people\\zz_audit_people_probe_test.go": "<repo>\\docs\\audits\\2026-09-06-system-review\\evidence\\people_probe_test.go.txt",
-    "<repo>\\internal\\app\\zz_audit_datasource_approval_probe_test.go": "<repo>\\docs\\audits\\2026-09-06-system-review\\evidence\\datasource_approval_probe_test.go.txt"
-  }
-}

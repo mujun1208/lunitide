@@ -1,1 +1,0 @@
-﻿hasPlay=True hasPick=True mp3Exists=True
