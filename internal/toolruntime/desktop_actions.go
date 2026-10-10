@@ -87,7 +87,7 @@ func executeDesktopBrowse(raw json.RawMessage, approved bool) (Result, error) {
 	}
 	proof := confirmBrowserOpened()
 	if proof.Kind != "" {
-		return result(appendL0JSON("已打开桌面浏览器："+u.String()+"。用检索结果回答并停止，不要再调用 computer.act 或 browser.act。", proof.Kind, true, false, u.String())), nil
+		return result(appendL0JSON("已打开桌面浏览器："+u.String()+"。检索结果已就绪；若用户还要打开其中某一条（如第一条新闻），继续用 web.fetch 读取该链接，或用 computer.act 点击对应结果。", proof.Kind, true, false, u.String())), nil
 	}
-	return result(appendL0JSON("已向系统默认桌面浏览器发送打开请求："+u.String()+"。页面已交给系统浏览器。用检索结果回答并停止，不要再调用 computer.act 或 browser.act。", "process", false, true, "BROWSER_UNVERIFIED")), nil
+	return result(appendL0JSON("已向系统默认桌面浏览器发送打开请求："+u.String()+"。页面已交给系统浏览器。检索结果就绪；若用户还要打开其中某一条，继续用 web.fetch 读取该链接，或用 computer.act 点击对应结果。", "process", false, true, "BROWSER_UNVERIFIED")), nil
 }

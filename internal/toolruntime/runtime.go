@@ -683,11 +683,24 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil {
 			return Result{}, e
 		}
-		written, e := r.writeGenerated(mode, session, "canvas.html", []byte(page), -1, unconfined)
+		// 每份画布交付物按标题单独命名，绝不覆盖同会话的早期产物；
+		// canvas.html 只保留为「画布」标签页的最新一版镜像，供会话
+		// 恢复时预览，卡片与消息引用始终指向标题命名的交付物本身。
+		// 兜底名避开 canvas：交付物永远不占用镜像文件名，否则后续
+		// 产物的镜像写入会覆盖先前产物。
+		name := sanitizeTitleFileName(canvasTitle(args))
+		if name == "" || strings.EqualFold(name, "canvas") {
+			name = "canvas-report"
+		}
+		rel := r.uniqueGeneratedPath(session, name+".html", []byte(page))
+		written, e := r.writeGenerated(mode, session, rel, []byte(page), -1, unconfined)
 		if e != nil {
 			return Result{}, e
 		}
-		written.Artifact = &Artifact{Kind: "html", Path: "canvas.html", Content: page}
+		if mirror, me := r.writeGenerated(mode, session, "canvas.html", []byte(page), -1, unconfined); me == nil {
+			written.Output += "\n" + mirror.Output
+		}
+		written.Artifact = &Artifact{Kind: "html", Path: rel, Content: page}
 		written.Output = "canvas ready\n" + written.Output
 		return written, nil
 	case "weather.get":
@@ -985,14 +998,23 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		if e != nil {
 			return Result{}, e
 		}
+		defaultNamed := false
 		if !a.Desktop && strings.TrimSpace(a.Path) == "" {
+			// 模型没有为产物取名时同样不许撞车：优先用 title 命名，
+			// 没有标题再回落模板名，两种默认名都走防覆盖探测，
+			// 同一对话的第二份产物会得到 -2 而不是覆盖第一份。
+			defaultNamed = true
+			fallbackName := "penalty-shootout.html"
 			switch a.Template {
 			case "timer":
-				a.Path = "timer.html"
+				fallbackName = "timer.html"
 			case "checklist":
-				a.Path = "checklist.html"
-			default:
-				a.Path = "penalty-shootout.html"
+				fallbackName = "checklist.html"
+			}
+			if base := sanitizeTitleFileName(a.Title); base != "" {
+				a.Path = base + ".html"
+			} else {
+				a.Path = fallbackName
 			}
 		}
 		fallbackHTML := "世界杯点球大战.html"
@@ -1008,6 +1030,9 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		}
 		if ext := strings.ToLower(filepath.Ext(outPath)); ext != ".html" && ext != ".htm" {
 			return Result{}, errors.New("html.gen path must end with .html")
+		}
+		if defaultNamed {
+			outPath = r.uniqueGeneratedPath(session, outPath, []byte(page))
 		}
 		written, e := r.writeGenerated(mode, session, outPath, []byte(page), -1, unconfined)
 		if e != nil {

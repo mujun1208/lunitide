@@ -162,6 +162,43 @@ export async function startCompanionTalk(
     void stop().finally(() => callbacks.onEnded())
   }
 
+  // Capture starts BEFORE the talk connection: the microphone and the
+  // websocket open in parallel, and frames that arrive while the stream is
+  // still connecting stay queued instead of being dropped. The old order
+  // (connect, then capture) muted the first ~0.5-1s of speech — users heard
+  // their own words lose the opening syllables ("的天气怎么样" for
+  // "今天上海的天气怎么样").
+  try {
+    capture = await (deps.capture ?? startPcmCapture)({
+      onFrame: frame => {
+        if (stopped) return
+        sendQueue.push(frame.base64)
+        while (sendQueue.length > MAX_QUEUED_FRAMES) {
+          sendQueue.shift()
+          droppedFrames += 1
+          droppedSinceLog += 1
+        }
+        if (droppedSinceLog >= DROP_LOG_EVERY) {
+          console.warn(`[talk] send queue overflow, dropped ${droppedFrames} frames`)
+          droppedSinceLog = 0
+        }
+        pumpSend()
+      },
+      onError: error => {
+        if (!stopped) callbacks.onError(error)
+      },
+    })
+  } catch (error) {
+    await stop()
+    if (error instanceof BridgeClientError) callbacks.onError(error)
+    return undefined
+  }
+  if (stopped) {
+    await capture.stop().catch(() => undefined)
+    capture = undefined
+    return undefined
+  }
+
   try {
     const talk = deps.talk ?? getTalkBridge()
     stream = await talk.start(
@@ -212,37 +249,9 @@ export async function startCompanionTalk(
     await stream.cancel('all').catch(() => undefined)
     return undefined
   }
-
-  try {
-    capture = await (deps.capture ?? startPcmCapture)({
-      onFrame: frame => {
-        if (stopped || !stream) return
-        sendQueue.push(frame.base64)
-        while (sendQueue.length > MAX_QUEUED_FRAMES) {
-          sendQueue.shift()
-          droppedFrames += 1
-          droppedSinceLog += 1
-        }
-        if (droppedSinceLog >= DROP_LOG_EVERY) {
-          console.warn(`[talk] send queue overflow, dropped ${droppedFrames} frames`)
-          droppedSinceLog = 0
-        }
-        pumpSend()
-      },
-      onError: error => {
-        if (!stopped) callbacks.onError(error)
-      },
-    })
-  } catch (error) {
-    await stop()
-    if (error instanceof BridgeClientError) callbacks.onError(error)
-    return undefined
-  }
-  if (stopped) {
-    await capture.stop().catch(() => undefined)
-    capture = undefined
-    return undefined
-  }
+  // The stream is live: flush everything the microphone caught while the
+  // connection was being established.
+  pumpSend()
 
   if (deps.firstAudioMs != null) {
     const heard = await Promise.race([

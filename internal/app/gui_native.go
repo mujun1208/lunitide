@@ -123,7 +123,7 @@ func parseGuiNativeStep(raw string) (guiLoopAction, error) {
 // ccampGuiNativeScrollNotchesForDescription mirrors the notch conversion so
 // describeGUIAction reports what will actually run.
 func ccampGuiNativeScrollNotchesForDescription(na ccapp.GuiNativeAction) int {
-	raw, err := ccapp.MapGuiNativeAction(na, 1000, 1000, nil)
+	raw, err := ccapp.MapGuiNativeAction(na, 1000, 1000, nil, "")
 	if err != nil {
 		return 0
 	}

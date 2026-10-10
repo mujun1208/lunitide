@@ -128,7 +128,16 @@ if ($sqliteListed.Count -gt 0) {
     # run concurrently under coverage (2026-10-07, three consecutive crashes
     # at Xmalloc.deferwrap1 with the abort-retry exhausted). Serializing the
     # package's tests reproduces cleanly; assertion failures still fail.
-    Invoke-GoLoggedTest -Attempts 2 -GoArgs @(
+    # 2026-10-10: the flake returned machine-wide (three gate crashes in a
+    # row; 20 sampled runs passed ~25% regardless of modernc version
+    # v1.46.1 vs v1.60.1, clean tree vs dirty, GOMAXPROCS=1, or
+    # GODEBUG=asyncpreemptoff=1; all aborts land inside modernc.org/libc —
+    # Xmalloc fault, unlock of unlocked mutex, unknown caller pc). It is an
+    # environment-sensitive third-party abort, not a product failure, so the
+    # retry budget for this step is 8 attempts while the classifier (see
+    # Go-TestHelpers.ps1) gained the unknown-caller-pc / unexpected-return-pc
+    # signatures it was missing.
+    Invoke-GoLoggedTest -Attempts 8 -GoArgs @(
         'test',
         '-timeout', $Timeout,
         '-parallel', '1',

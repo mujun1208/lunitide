@@ -88,6 +88,38 @@ func renderCanvas(args []byte) (string, error) {
 	return b.String(), nil
 }
 
+// canvasTitle answers the presentation's own title, empty when the payload
+// cannot be read. The model already names every deliverable — that title is
+// the artifact's file name, so two reports in one session never share a path.
+func canvasTitle(args []byte) string {
+	var doc canvasDoc
+	if strict(args, &doc) != nil {
+		return ""
+	}
+	return strings.TrimSpace(doc.Title)
+}
+
+// sanitizeTitleFileName turns a model-chosen title into a single safe
+// file-name segment (no extension): Windows-illegal characters are dropped,
+// whitespace is folded, length is capped at 40 runes, and trailing dots are
+// stripped. It answers "" when nothing usable remains, leaving the caller
+// to pick its own fallback.
+func sanitizeTitleFileName(title string) string {
+	var b strings.Builder
+	for _, r := range title {
+		if r < 0x20 || strings.ContainsRune(`<>:"/\|?*`, r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	name := strings.Join(strings.Fields(b.String()), " ")
+	if runes := []rune(name); len(runes) > 40 {
+		name = strings.TrimSpace(string(runes[:40]))
+	}
+	name = strings.Trim(name, " .")
+	return name
+}
+
 func stripCanvasScripts(fragment string) string {
 	lower := strings.ToLower(fragment)
 	var b strings.Builder

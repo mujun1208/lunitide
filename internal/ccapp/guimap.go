@@ -220,9 +220,19 @@ func firstCcJSONObject(raw string) (string, error) {
 // saw; cursor is the last known mouse position, required only by
 // left_click_drag. Signal actions (terminate/answer/interact) are rejected —
 // the caller handles them via GuiNativeSignal.
-func MapGuiNativeAction(a GuiNativeAction, frameW, frameH int, cursor *GuiNativePoint) (json.RawMessage, error) {
+// frameID is the current screenshot echo; pixel actions without it
+// are rejected by the input filter (M10-CC-008 COMPUTER_STALE_FRAME), so the
+// gui loop must always pass its live frameID. An empty frameID is accepted for
+// callers that only render descriptions.
+func MapGuiNativeAction(a GuiNativeAction, frameW, frameH int, cursor *GuiNativePoint, frameID string) (json.RawMessage, error) {
 	if GuiNativeSignal(a) != "" {
 		return nil, fmt.Errorf("native action %s is an orchestration signal", a.Action)
+	}
+	withFrame := func(m map[string]any) map[string]any {
+		if id := strings.TrimSpace(frameID); id != "" {
+			m["frameId"] = id
+		}
+		return m
 	}
 	switch a.Action {
 	case "key":
@@ -249,7 +259,7 @@ func MapGuiNativeAction(a GuiNativeAction, frameW, frameH int, cursor *GuiNative
 			// double-click since it's the closest action".
 			action = "double_click"
 		}
-		return json.Marshal(map[string]any{"action": action, "x": x, "y": y})
+		return json.Marshal(withFrame(map[string]any{"action": action, "x": x, "y": y}))
 	case "left_click_drag":
 		x2, y2, err := guiNativeXY(a.Coordinate, frameW, frameH)
 		if err != nil {
@@ -258,7 +268,7 @@ func MapGuiNativeAction(a GuiNativeAction, frameW, frameH int, cursor *GuiNative
 		if cursor == nil {
 			return nil, fmt.Errorf("drag needs a known cursor: move the mouse first")
 		}
-		return json.Marshal(map[string]any{"action": "drag", "x1": cursor.X, "y1": cursor.Y, "x2": x2, "y2": y2})
+		return json.Marshal(withFrame(map[string]any{"action": "drag", "x1": cursor.X, "y1": cursor.Y, "x2": x2, "y2": y2}))
 	case "scroll", "hscroll":
 		m := map[string]any{"action": "scroll", "scroll": guiNativeScrollNotches(a.Pixels)}
 		if a.Action == "hscroll" {

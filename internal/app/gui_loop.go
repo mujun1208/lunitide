@@ -205,9 +205,23 @@ func parseGUILoopAction(raw string, emptyTree bool, wantFrame string) (guiLoopAc
 	return guiLoopAction{}, fmt.Errorf("unknown action %q", a.Action)
 }
 
-func buildGUILoopArgs(a guiLoopAction, emptyTree bool, visW, visH int, cursor *ccapp.GuiNativePoint) (json.RawMessage, error) {
+// echoFrame picks the frameId echo for loop-built payloads: the live
+// screenshot id first, the model's own echo second. Both grammars bind id=
+// and pixel actions to the observed frame (ccapp filter M10-CC-008).
+func echoFrame(live, model string) string {
+	if id := strings.TrimSpace(live); id != "" {
+		return id
+	}
+	return strings.TrimSpace(model)
+}
+
+// buildGUILoopArgs turns one loop action into a computer.act payload.
+// frameID is the loop's live screenshot id: the gui-plus native protocol has
+// no frameId echo of its own, so pixel actions get it injected here — without
+// it the ccapp input filter rejects every native move/click (M10-CC-008).
+func buildGUILoopArgs(a guiLoopAction, emptyTree bool, visW, visH int, cursor *ccapp.GuiNativePoint, frameID string) (json.RawMessage, error) {
 	if a.Native != nil {
-		return ccapp.MapGuiNativeAction(*a.Native, visW, visH, cursor)
+		return ccapp.MapGuiNativeAction(*a.Native, visW, visH, cursor, echoFrame(frameID, a.FrameID))
 	}
 	switch a.Action {
 	case "click", "double_click", "right_click", "left_click", "dblclick", "rightclick":
@@ -221,7 +235,14 @@ func buildGUILoopArgs(a guiLoopAction, emptyTree bool, visW, visH int, cursor *c
 			action = "right_click"
 		}
 		if a.MarkID != "" {
-			return json.Marshal(map[string]any{"action": action, "id": a.MarkID})
+			// Mark clicks bind to the observed frame exactly like pixel
+			// clicks (filter: id= needs the frameId echo), but the internal
+			// grammar never asks the model to echo one — inject the live id.
+			m := map[string]any{"action": action, "id": a.MarkID}
+			if id := echoFrame(frameID, a.FrameID); id != "" {
+				m["frameId"] = id
+			}
+			return json.Marshal(m)
 		}
 		x, err := mapGUICoord(*a.X, visW)
 		if err != nil {
@@ -249,6 +270,10 @@ func buildGUILoopArgs(a guiLoopAction, emptyTree bool, visW, visH int, cursor *c
 			if x, err := mapGUICoord(*a.X, visW); err == nil {
 				if y, err := mapGUICoord(*a.Y, visH); err == nil {
 					m["x"], m["y"] = x, y
+					// A scroll at a pixel binds to the observed frame too.
+					if id := echoFrame(frameID, a.FrameID); id != "" {
+						m["frameId"] = id
+					}
 				}
 			}
 		}
@@ -510,7 +535,7 @@ func runGUILoop(in guiFallbackIn, rt guiLoopRuntime) (toolruntime.Result, json.R
 			skipped = true
 		}
 		if !skipped {
-			args, err := buildGUILoopArgs(act, nodes == 0, visW, visH, cursor)
+			args, err := buildGUILoopArgs(act, nodes == 0, visW, visH, cursor, frameID)
 			if err != nil {
 				steps = append(steps, guiLoopStep{Action: act.Action, Result: err.Error(), OK: false})
 				consecutiveFails++

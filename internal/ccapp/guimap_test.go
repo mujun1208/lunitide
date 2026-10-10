@@ -251,7 +251,7 @@ func TestMapGuiNativeActionTable(t *testing.T) {
 		if tc.noCursor {
 			useCursor = nil
 		}
-		raw, err := MapGuiNativeAction(tc.action, 1920, 1080, useCursor)
+		raw, err := MapGuiNativeAction(tc.action, 1920, 1080, useCursor, "")
 		if tc.wantErr {
 			if err == nil {
 				t.Fatalf("%s: expected error, got %s", tc.name, raw)
@@ -295,11 +295,11 @@ func fmtAny(v any) string {
 
 func TestMapGuiNativeActionCoordEdges(t *testing.T) {
 	// Zero frame size must fail closed instead of clicking (0,0).
-	if _, err := MapGuiNativeAction(GuiNativeAction{Action: "left_click", Coordinate: []float64{500, 500}}, 0, 0, nil); err == nil {
+	if _, err := MapGuiNativeAction(GuiNativeAction{Action: "left_click", Coordinate: []float64{500, 500}}, 0, 0, nil, ""); err == nil {
 		t.Fatal("zero frame must fail")
 	}
 	// Absolute pixel past the frame clamps inside.
-	raw, err := MapGuiNativeAction(GuiNativeAction{Action: "left_click", Coordinate: []float64{4000, 2000}}, 1920, 1080, nil)
+	raw, err := MapGuiNativeAction(GuiNativeAction{Action: "left_click", Coordinate: []float64{4000, 2000}}, 1920, 1080, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,11 +307,48 @@ func TestMapGuiNativeActionCoordEdges(t *testing.T) {
 		t.Fatalf("clamp: %s", raw)
 	}
 	// Per-mille at the far edge clamps inside too.
-	raw, err = MapGuiNativeAction(GuiNativeAction{Action: "left_click", Coordinate: []float64{1000, 1000}}, 1920, 1080, nil)
+	raw, err = MapGuiNativeAction(GuiNativeAction{Action: "left_click", Coordinate: []float64{1000, 1000}}, 1920, 1080, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(raw), `"x":1919`) || !strings.Contains(string(raw), `"y":1079`) {
 		t.Fatalf("edge clamp: %s", raw)
+	}
+}
+
+// Native pixel actions must echo the loop's frameID: without it the ccapp
+// input filter rejects every move/click with M10-CC-008 (COMPUTER_STALE_FRAME),
+// which is exactly the "屏幕动作连续失败" chain seen when typing into desktop
+// chat apps.
+func TestMapGuiNativeActionInjectsFrameID(t *testing.T) {
+	raw, err := MapGuiNativeAction(GuiNativeAction{Action: "mouse_move", Coordinate: []float64{418, 644}}, 1920, 1080, nil, "frame-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"action":"move"`) || !strings.Contains(string(raw), `"frameId":"frame-7"`) {
+		t.Fatalf("move must echo frameId: %s", raw)
+	}
+	raw, err = MapGuiNativeAction(GuiNativeAction{Action: "left_click", Coordinate: []float64{500, 500}}, 1920, 1080, nil, "frame-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"frameId":"frame-7"`) {
+		t.Fatalf("click must echo frameId: %s", raw)
+	}
+	cursor := &GuiNativePoint{X: 10, Y: 10}
+	raw, err = MapGuiNativeAction(GuiNativeAction{Action: "left_click_drag", Coordinate: []float64{500, 500}}, 1920, 1080, cursor, "frame-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"frameId":"frame-7"`) {
+		t.Fatalf("drag must echo frameId: %s", raw)
+	}
+	// Empty frameID stays absent (description-only callers).
+	raw, err = MapGuiNativeAction(GuiNativeAction{Action: "mouse_move", Coordinate: []float64{418, 644}}, 1920, 1080, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "frameId") {
+		t.Fatalf("empty frameId must not be injected: %s", raw)
 	}
 }

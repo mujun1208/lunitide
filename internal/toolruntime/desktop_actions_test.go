@@ -63,3 +63,30 @@ func TestDesktopBrowseUsesRealBrowserAndEscapesQuery(t *testing.T) {
 		t.Fatalf("%s %v", opened, err)
 	}
 }
+
+// 打开搜索页后，summary 必须允许"打开第一条新闻"这类后续动作——
+// 一刀切"不要再调用"会把两步任务卡死在第二步。
+func TestDesktopBrowseSummaryKeepsFollowUpOpen(t *testing.T) {
+	old := openDesktopURL
+	origFG, origList, origProc, origSleep, origTries := readForegroundFn, listWindowsFn, lookupProcessImagesFn, openVerifySleep, openVerifyTries
+	openDesktopURL = func(string) error { return nil }
+	openVerifyTries = 1
+	openVerifySleep = func() {}
+	readForegroundFn = func() (string, string, error) { return "Edge", "msedge.exe", nil }
+	listWindowsFn = func() []windowHint { return nil }
+	lookupProcessImagesFn = func([]string) []string { return nil }
+	t.Cleanup(func() {
+		openDesktopURL = old
+		readForegroundFn, listWindowsFn, lookupProcessImagesFn, openVerifySleep, openVerifyTries = origFG, origList, origProc, origSleep, origTries
+	})
+	out, err := executeDesktopBrowse(json.RawMessage(`{"query":"周杰伦最新新闻"}`), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.Output, "不要再调用") {
+		t.Fatalf("summary must not forbid follow-up actions: %s", out.Output)
+	}
+	if !strings.Contains(out.Output, "web.fetch") || !strings.Contains(out.Output, "第一条") {
+		t.Fatalf("summary should tell the model how to open the first result: %s", out.Output)
+	}
+}

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lunitide/lunitide/internal/htmlapp"
 )
 
 func TestHTMLGenWritesPlayablePreview(t *testing.T) {
@@ -78,6 +80,64 @@ func TestHTMLGenDesktopArtifactPath(t *testing.T) {
 	b, err := os.ReadFile(target)
 	if err != nil || !strings.Contains(string(b), "canvas") {
 		t.Fatalf("desktop write failed: %v", err)
+	}
+}
+
+// html.gen 未指定 path 时用 title 命名默认产物；同一对话的多份
+// 默认名产物互不覆盖（防覆盖探测），显式 path 的覆盖语义保持不变。
+func TestHTMLGenDefaultPathKeepsBothDeliverables(t *testing.T) {
+	r, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	first, err := r.Execute(context.Background(), AutoEdit, officeSession, "html.gen", json.RawMessage(`{"title":"训练计时器","template":"timer"}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Artifact == nil || first.Artifact.Path != "训练计时器.html" {
+		t.Fatalf("first artifact = %+v", first.Artifact)
+	}
+	second, err := r.Execute(context.Background(), AutoEdit, officeSession, "html.gen", json.RawMessage(`{"title":"比赛计时器","template":"timer"}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Artifact.Path != "比赛计时器.html" {
+		t.Fatalf("second artifact path = %s", second.Artifact.Path)
+	}
+	if _, err := os.Stat(filepath.Join(r.root, officeSession, "训练计时器.html")); err != nil {
+		t.Fatal("the first default-named deliverable was overwritten")
+	}
+}
+
+// 标题净化后不可用时回落模板名，两份不同内容也不会互相覆盖。
+func TestHTMLGenFallbackNameStepsAsideOnCollision(t *testing.T) {
+	r, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	first, err := r.Execute(context.Background(), AutoEdit, officeSession, "html.gen", json.RawMessage(`{"title":"/","template":"timer"}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Artifact.Path != "timer.html" {
+		t.Fatalf("first fallback path = %s", first.Artifact.Path)
+	}
+	second, err := r.Execute(context.Background(), AutoEdit, officeSession, "html.gen", json.RawMessage(`{"title":"?","template":"timer"}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Artifact.Path != "timer-2.html" {
+		t.Fatalf("second fallback path = %s", second.Artifact.Path)
+	}
+	firstBytes, err := os.ReadFile(filepath.Join(r.root, officeSession, "timer.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFirst, renderErr := htmlapp.Render("timer", "/")
+	if renderErr != nil || string(firstBytes) != wantFirst {
+		t.Fatal("the first fallback deliverable was overwritten")
 	}
 }
 

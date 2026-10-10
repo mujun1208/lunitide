@@ -287,6 +287,22 @@ func (s *Service) refuseTypingWithoutFocus() error {
 	return nil
 }
 
+// refuseTypingWithoutFocusRetry re-probes the caret once before refusing: a
+// just-activated window (Electron chat apps in particular) can still be moving
+// the caret into its composer when the first probe runs, and a click→type
+// pair must not fail on that activation transition.
+func (s *Service) refuseTypingWithoutFocusRetry() error {
+	if s == nil {
+		return nil
+	}
+	if err := s.refuseTypingWithoutFocus(); err == nil || s.typingArmed() {
+		return nil
+	}
+	time.Sleep(250 * time.Millisecond)
+	s.noteTypingFocus(probeFocus(s.host))
+	return s.refuseTypingWithoutFocus()
+}
+
 func (s *Service) noteTypingFocus(role string, known bool) {
 	if s == nil {
 		return

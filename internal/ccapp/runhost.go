@@ -223,7 +223,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			return "", nil, err
 		}
 		s.noteTypingFocus(probeFocus(s.host))
-		if err := s.refuseTypingWithoutFocus(); err != nil && !s.typingArmed() {
+		if err := s.refuseTypingWithoutFocusRetry(); err != nil {
 			return "", nil, err
 		}
 		if err := s.waitExecution(40 * time.Millisecond); err != nil {
@@ -627,7 +627,7 @@ func (s *Service) runHost(tool string, args json.RawMessage, shortcut []string) 
 			return "", nil, err
 		}
 		s.noteTypingFocus(probeFocus(s.host))
-		if err := s.refuseTypingWithoutFocus(); err != nil && !s.typingArmed() {
+		if err := s.refuseTypingWithoutFocusRetry(); err != nil {
 			return "", nil, err
 		}
 		s.clearComposerArmed()

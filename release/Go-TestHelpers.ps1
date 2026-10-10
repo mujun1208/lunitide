@@ -8,6 +8,8 @@ function Test-GoRuntimeAbort {
     return $Text -match 'fatal error: unexpected signal' -or
         $Text -match 'fatal error: fault' -or
         $Text -match 'unknown pc 0x' -or
+        $Text -match 'fatal error: unknown caller pc' -or
+        $Text -match 'unexpected return pc' -or
         $Text -match 'tryDeferToSpanScan' -or
         $Text -match 'Exception 0xc0000005' -or
         $Text -match 'signal 0xc0000005' -or
@@ -66,6 +68,9 @@ function Assert-GoRuntimeAbortClassifier {
     }
     if (-not (Test-GoRuntimeAbort "fatal error: sync: unlock of unlocked mutex")) {
         throw 'expected unlocked-mutex throw to count as a runtime abort'
+    }
+    if (-not (Test-GoRuntimeAbort "runtime: g 7324: unexpected return pc for modernc.org/libc.Xmalloc.deferwrap1 called from 0x7ff61c4c9370`nfatal error: unknown caller pc")) {
+        throw 'expected corrupted-unwind throw to count as a runtime abort'
     }
     if (-not (Test-GoRuntimeAbort 'fatal error: index out of range in runtime.tryDeferToSpanScan')) {
         throw 'expected Green Tea throw to count as a runtime abort'

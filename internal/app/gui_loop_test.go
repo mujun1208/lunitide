@@ -321,7 +321,7 @@ func TestParseGUILoopActionGrammar(t *testing.T) {
 	if _, err := parseGUILoopAction(`{"action":"type","text":""}`, false, "f"); err == nil {
 		t.Fatal("empty type must fail")
 	}
-	raw, err := buildGUILoopArgs(guiLoopAction{Action: "type", Text: "你好世界"}, false, 1000, 500, nil)
+	raw, err := buildGUILoopArgs(guiLoopAction{Action: "type", Text: "你好世界"}, false, 1000, 500, nil, "")
 	if err != nil || !strings.Contains(string(raw), `"action":"paste"`) {
 		t.Fatalf("CJK type must emit paste: %s %v", raw, err)
 	}
@@ -347,4 +347,43 @@ func TestObserveReturnedEmptyTree(t *testing.T) {
 	if observeReturnedEmptyTree(`{"count":12,"nodes":[...]}`) {
 		t.Fatal("non-empty tree must not trigger")
 	}
+}
+
+// 回归（M10-CC-008）：内部语法的 markId 点击与定点 scroll 走 computer.act
+// 时必须携带 loop 的 live frameId。ccapp 过滤器对 id=/像素动作强制回显，
+// 缺失即整条视觉循环每次点击都被拒绝（与 native 分支同一根因族）。
+func TestGUILoopMarkAndScrollEchoLiveFrameID(t *testing.T) {
+	x, y := 300.0, 200.0
+	mark, err := buildGUILoopArgs(guiLoopAction{Action: "click", MarkID: "B1"}, false, 1000, 500, nil, "frm_live")
+	if err != nil || !strings.Contains(string(mark), `"id":"B1"`) || !strings.Contains(string(mark), `"frameId":"frm_live"`) {
+		t.Fatalf("mark click must echo the live frameId: %s %v", mark, err)
+	}
+	scroll, err := buildGUILoopArgs(guiLoopAction{Action: "scroll", Scroll: -3, X: &x, Y: &y}, false, 1000, 500, nil, "frm_live")
+	if err != nil || !strings.Contains(string(scroll), `"frameId":"frm_live"`) {
+		t.Fatalf("scroll at a pixel must echo the live frameId: %s %v", scroll, err)
+	}
+	// 无 live 帧（尚未 observe）时不应凭空造 frameId。
+	plain, err := buildGUILoopArgs(guiLoopAction{Action: "scroll", Scroll: -3}, false, 1000, 500, nil, "")
+	if err != nil || strings.Contains(string(plain), "frameId") {
+		t.Fatalf("scroll without a live frame must stay frameless: %s %v", plain, err)
+	}
+	mark2, err := buildGUILoopArgs(guiLoopAction{Action: "click", MarkID: "B1"}, false, 1000, 500, nil, "")
+	if err != nil || strings.Contains(string(mark2), "frameId") {
+		t.Fatalf("mark click without a live frame must stay frameless: %s %v", mark2, err)
+	}
+	// 全链路：视觉循环发出的真实 exec payload 必须带 live frameId。
+	s := &guiLoopScript{
+		frame:   "f1",
+		nodes:   3,
+		hits:    map[string]bool{"B2": true},
+		replies: []string{`{"action":"click","markId":"B2"}`, `{"action":"done","reason":"完成"}`},
+	}
+	res, _, used := runGUILoop(guiLoopR2(true, false), s.runtime("点一下"))
+	if !used || len(s.execArgs) == 0 {
+		t.Fatalf("used=%v exec=%s", used, s.execArgs)
+	}
+	if !strings.Contains(string(s.execArgs[0]), `"frameId":"f1"`) {
+		t.Fatalf("exec payload must carry the live frameId: %s", s.execArgs[0])
+	}
+	_ = res
 }

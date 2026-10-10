@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import { BridgeClientError, type TalkStreamEvent } from '../../bridge/client'
+import { BridgeClientError, type TalkStreamEvent, type TalkStreamHandle } from '../../bridge/client'
 import type { ProviderDTO } from '../../generated/bridge'
 import {
   companionCascadeSpeechBlocked,
@@ -413,6 +413,84 @@ describe('startCompanionTalk send backpressure', () => {
     expect(appended).toEqual(Array.from({ length: 10 }, (_, i) => `f${i}`))
     expect(warn).not.toHaveBeenCalled()
     warn.mockRestore()
+    await handle?.stop()
+  })
+})
+
+describe('startCompanionTalk capture-first ordering', () => {
+  type FrameCb = (frame: { base64: string; samples: Int16Array; peak: number }) => void
+  const frame = (base64: string) => ({ base64, samples: new Int16Array(1600), peak: 0 })
+
+  const baseCallbacks = () => ({
+    sessionId,
+    onAudio: () => {},
+    onUserTranscript: () => {},
+    onAssistantTranscript: () => {},
+    onBarge: () => {},
+    onToolHandoff: () => {},
+    onError: () => {},
+    onEnded: () => {},
+  })
+
+  // 回归（开头吞字）：capture 必须先于 talk 连接启动；连接握手期间麦克风
+  // 已在收音，期间到达的帧只能排队，连接就绪后按序冲洗——否则用户开口
+  // 的前 1-2 个字被静音丢弃（"今天上海的天气怎么样"→"的天气怎么样"）。
+  test('captures before connecting, queues frames during the handshake, and flushes them in order once live', async () => {
+    const order: string[] = []
+    let emit!: FrameCb
+    const appended: string[] = []
+    let goLive!: (stream: TalkStreamHandle) => void
+    const live = new Promise<TalkStreamHandle>(resolve => {
+      goLive = resolve
+    })
+    const pending = startCompanionTalk(baseCallbacks(), {
+      listProviders: async () => ({ items: [realtime] }),
+      capture: async opts => {
+        order.push('capture')
+        emit = opts.onFrame
+        return {
+          stop: async () => {},
+          setMuted: () => {},
+          contextSampleRate: () => 16000,
+          flush: () => {},
+          attachExtraStream: () => {},
+        }
+      },
+      talk: {
+        start: async () => {
+          order.push('talk')
+          // 连接挂起：模拟 WebSocket 握手期间麦克风已经在收音。
+          return await live
+        },
+      },
+    })
+    for (let guard = 0; guard < 100 && order.length < 2; guard += 1) await Promise.resolve()
+    // 麦克风先启动，连接后启动。
+    expect(order).toEqual(['capture', 'talk'])
+
+    // 连接尚未就绪时说出的开头帧：排队等待，不允许发送。
+    emit(frame('f0'))
+    emit(frame('f1'))
+    emit(frame('f2'))
+    for (let guard = 0; guard < 10; guard += 1) await Promise.resolve()
+    expect(appended).toEqual([])
+
+    // 连接建立：排队帧全部按序冲洗，开头不丢字。
+    goLive({
+      talkId: 'talk-1',
+      streamId: sessionId,
+      sessionId,
+      done: Promise.resolve(),
+      append: async (pcm: string) => {
+        appended.push(pcm)
+        return true
+      },
+      cancel: async () => {},
+    })
+    const handle = await pending
+    expect(handle).toBeDefined()
+    for (let guard = 0; guard < 10; guard += 1) await Promise.resolve()
+    expect(appended).toEqual(['f0', 'f1', 'f2'])
     await handle?.stop()
   })
 })
