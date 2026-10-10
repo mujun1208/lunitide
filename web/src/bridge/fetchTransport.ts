@@ -147,6 +147,14 @@ export class FetchTransport implements WebViewTransport {
       })
       clearTimeout(headerTimer)
       if (!response.ok || !response.body) {
+        // 404 = 服务端没有 /bridge/http 端点（0.17.6 及更早的电脑端）：
+        // 协议不存在的明确信号，轮换候选无意义。文案直指升级电脑端——
+        // 0.17.7 实测：桌面端未更新时 gate 只显示「远程网关错误（404）」，
+        // 用户不知道问题出在电脑端版本。
+        if (response.status === 404) {
+          this.emitSyntheticError(request, 'REMOTE_PROTOCOL_UNSUPPORTED', '电脑端 Lunitide 版本过旧，不支持新版连接协议。请先将电脑端升级到最新版本，再重新扫码配对。', false)
+          return
+        }
         // 网关可达但拒绝（401 令牌失效/405/5xx）：轮换无意义，转错误帧。
         const code = response.status === 401 ? 'REMOTE_UNAUTHORIZED' : 'REMOTE_GATEWAY_ERROR'
         const message = response.status === 401 ? '设备授权已失效，请重新扫码配对' : `远程网关错误（${response.status}）`

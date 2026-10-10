@@ -145,6 +145,16 @@ export function RemoteCompanionPanel({ bridge = remoteCompanionBridge }: { bridg
     setBusy(false)
   }
 
+  // —— 二维码自动保鲜（0.17.8，0.17.7 实测回归根因）——
+  // 配对码 5 分钟 TTL 且一次性消费。旧版只在面板打开时签发一次：码被消费
+  // 或过期后桌面仍展示旧二维码，用户重扫必报「配对码无效或已过期」且不知
+  // 去哪换新。两条自动换新路径把面板上的二维码钉死在「始终可扫」：
+  //   1) 临期换新：剩余有效期 < 60s 自动重新签发（countdown tick 驱动重渲染）。
+  //   2) 消费后换新：面板可见期间每 20s 静默刷新审计，发现新 pair 记录
+  //      （旧码刚被消费）立即重新签发——重扫场景拿到的永远是新码。
+  const lastSeenPairAuditId = useRef(0)
+  const autoRenewedFor = useRef('')
+
   const revoke = async (deviceId: string, name: string) => {
     if (!await askConfirm({ title: `吊销「${name}」的访问授权？`, description: '吊销后该设备的连接立即断开，需重新配对才能连接。', confirmLabel: '吊销' })) return
     setBusy(true); setError('')
@@ -163,6 +173,41 @@ export function RemoteCompanionPanel({ bridge = remoteCompanionBridge }: { bridg
   const revokedDevices = devices.filter(d => d.revokedAt)
   const deviceNameOf = (id: string) => devices.find(d => d.deviceId === id)?.name ?? (id === 'anonymous' ? '未知来源' : id)
   const reachability = classifyAddresses(status?.addresses ?? [])
+
+  // 临期换新：countdown 每秒 tick 驱动重渲染，剩余 <60s 即自动重新签发。
+  const pairRemainSeconds = pairInfo ? Math.max(0, Math.floor((Date.parse(pairInfo.expiresAt) - Date.now()) / 1000)) : 0
+  useEffect(() => {
+    if (!enabled || !pairInfo || busy) return
+    if (pairRemainSeconds > 60) return
+    if (autoRenewedFor.current === pairInfo.expiresAt) return
+    autoRenewedFor.current = pairInfo.expiresAt
+    void regenerateCode()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, pairInfo, pairRemainSeconds, busy])
+
+  // 面板可见期间每 20s 静默刷新设备/审计（配对成功即时感知的载体）。
+  useEffect(() => {
+    if (!enabled) return
+    const timer = window.setInterval(() => { void refresh(false) }, 20_000)
+    return () => clearInterval(timer)
+  }, [enabled, refresh])
+
+  // 消费后换新：审计出现新 pair 记录 = 旧码刚被消费，立即重新签发，
+  // 否则用户重扫旧二维码必报「配对码无效或已过期」。
+  useEffect(() => {
+    const latestPair = audit.find(row => row.kind === 'pair')
+    if (!latestPair) return
+    if (lastSeenPairAuditId.current === 0) {
+      // 首次加载只记基线：不为历史配对记录触发换新。
+      lastSeenPairAuditId.current = latestPair.id
+      return
+    }
+    if (latestPair.id > lastSeenPairAuditId.current) {
+      lastSeenPairAuditId.current = latestPair.id
+      if (enabled) void regenerateCode()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audit, enabled])
 
   return (
     <div className="governance-stack">

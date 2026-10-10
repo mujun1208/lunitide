@@ -17,6 +17,15 @@ class FakeTransport implements WebViewTransport {
     const event = new MessageEvent('message', { data: frame }) as MessageEvent<BridgeResponse>
     for (const listener of [...this.listeners]) listener(event)
   }
+  byMethod(method: string): Record<string, unknown> {
+    const frame = this.sent.find(item => item.method === method)
+    if (!frame) throw new Error(`no probe frame for ${method}`)
+    return frame
+  }
+}
+
+function okFrame(requestId: unknown, payload: unknown): unknown {
+  return { v: '1.0', kind: 'response', id: ULID, requestId, ok: true, payload }
 }
 
 function ndjsonResponse(frames: unknown[]): Response {
@@ -35,29 +44,41 @@ describe('availability gate', () => {
     vi.useRealTimers()
   })
 
-  it('sends a system.health probe and passes on an ok response frame', async () => {
+  it('sends health + provider.list probes and passes when both answer ok', async () => {
     const transport = new FakeTransport()
     const pending = probeViaTransport(transport)
-    await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
-    const frame = transport.sent[0]
-    // 探活请求契约：桥 v1.0、request、system.health、8s deadline。
-    expect(frame.v).toBe('1.0')
-    expect(frame.kind).toBe('request')
-    expect(frame.method).toBe('system.health')
-    expect(frame.deadlineMs).toBe(8_000)
+    await vi.waitFor(() => expect(transport.sent).toHaveLength(2))
+    const health = transport.byMethod('system.health')
+    const providers = transport.byMethod('provider.list')
+    // 探活请求契约：桥 v1.0、request、8s deadline；双查并行发出。
+    for (const frame of [health, providers]) {
+      expect(frame.v).toBe('1.0')
+      expect(frame.kind).toBe('request')
+      expect(frame.deadlineMs).toBe(8_000)
+    }
+    transport.deliver(okFrame(health.id, { engine: 'lunitide', version: '0.17.8', protocol: '1.0' }))
+    transport.deliver(okFrame(providers.id, { items: [] }))
+    await expect(pending).resolves.toEqual({ ok: true, engine: 'lunitide', version: '0.17.8' })
+  })
+
+  it('fails when provider.list errors even though health passed', async () => {
+    const transport = new FakeTransport()
+    const pending = probeViaTransport(transport)
+    await vi.waitFor(() => expect(transport.sent).toHaveLength(2))
+    transport.deliver(okFrame(transport.byMethod('system.health').id, { engine: 'lunitide', version: '0.17.8' }))
     transport.deliver({
-      v: '1.0', kind: 'response', id: ULID, requestId: frame.id, ok: true,
-      payload: { engine: 'lunitide', version: '0.17.7', protocol: '1.0' },
+      v: '1.0', kind: 'response', id: ULID, requestId: transport.byMethod('provider.list').id, ok: false,
+      error: { code: 'REMOTE_SCOPE_DENIED', message: '模型列表读取被拒绝', retryable: false, correlationId: ULID },
     })
-    await expect(pending).resolves.toEqual({ ok: true, engine: 'lunitide', version: '0.17.7' })
+    await expect(pending).resolves.toEqual({ ok: false, error: '模型列表读取被拒绝' })
   })
 
   it('fails with the server error message on an error response frame', async () => {
     const transport = new FakeTransport()
     const pending = probeViaTransport(transport)
-    await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
+    await vi.waitFor(() => expect(transport.sent).toHaveLength(2))
     transport.deliver({
-      v: '1.0', kind: 'response', id: ULID, requestId: transport.sent[0].id, ok: false,
+      v: '1.0', kind: 'response', id: ULID, requestId: transport.byMethod('system.health').id, ok: false,
       error: { code: 'REMOTE_UNAUTHORIZED', message: '设备授权已失效，请重新扫码配对', retryable: false, correlationId: ULID },
     })
     await expect(pending).resolves.toEqual({ ok: false, error: '设备授权已失效，请重新扫码配对' })
@@ -67,9 +88,9 @@ describe('availability gate', () => {
     vi.useFakeTimers()
     const transport = new FakeTransport()
     const pending = probeViaTransport(transport)
-    await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
+    await vi.waitFor(() => expect(transport.sent).toHaveLength(2))
     // 其它请求的响应帧不得误判为探活结果。
-    transport.deliver({ v: '1.0', kind: 'response', id: ULID, requestId: 'someone-else', ok: true, payload: {} })
+    transport.deliver(okFrame('someone-else', {}))
     vi.advanceTimersByTime(GATE_TIMEOUT_MS)
     const outcome = await pending
     expect(outcome.ok).toBe(false)
@@ -78,15 +99,17 @@ describe('availability gate', () => {
 
   it('probes real credentials through FetchTransport against /bridge/http', async () => {
     const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
-      const request = JSON.parse(String(init.body)) as { id: string }
-      return ndjsonResponse([{
-        v: '1.0', kind: 'response', id: ULID, requestId: request.id, ok: true,
-        payload: { engine: 'lunitide', version: '0.17.7', protocol: '1.0' },
-      }])
+      const request = JSON.parse(String(init.body)) as { id: string; method: string }
+      const payload = request.method === 'system.health'
+        ? { engine: 'lunitide', version: '0.17.8', protocol: '1.0' }
+        : { items: [] }
+      return ndjsonResponse([{ v: '1.0', kind: 'response', id: ULID, requestId: request.id, ok: true, payload }])
     })
     vi.stubGlobal('fetch', fetchImpl as unknown as typeof fetch)
     const outcome = await probeWithCredentials({ wsUrl: 'wss://192.0.2.10:47651/bridge', token: 'tok123' })
-    expect(outcome).toEqual({ ok: true, engine: 'lunitide', version: '0.17.7' })
+    expect(outcome).toEqual({ ok: true, engine: 'lunitide', version: '0.17.8' })
+    // 双查各自独立一次 POST。
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
     expect(String(fetchImpl.mock.calls[0][0])).toBe('https://192.0.2.10:47651/bridge/http')
     const headers = fetchImpl.mock.calls[0][1].headers as Record<string, string>
     expect(headers.Authorization).toBe('Bearer tok123')
@@ -98,5 +121,16 @@ describe('availability gate', () => {
     const outcome = await probeWithCredentials({ wsUrl: 'wss://a/bridge', token: 'dead' })
     expect(outcome.ok).toBe(false)
     if (!outcome.ok) expect(outcome.error).toContain('重新扫码配对')
+  })
+
+  it('fails with the upgrade-desktop message on 404 (old desktop without /bridge/http)', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 404 }))
+    vi.stubGlobal('fetch', fetchImpl as unknown as typeof fetch)
+    const outcome = await probeWithCredentials({ wsUrl: 'wss://a/bridge', token: 'tok123' })
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) {
+      expect(outcome.error).toContain('电脑端 Lunitide 版本过旧')
+      expect(outcome.error).toContain('升级')
+    }
   })
 })
