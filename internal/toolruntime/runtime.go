@@ -53,7 +53,12 @@ type Runtime struct {
 	now            func() time.Time
 	// fetchWeb is the SSRF-pinned web transport injected by the host
 	// (cmd/engine). nil keeps web.* tools unavailable (tests, offline).
-	fetchWeb        func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error)
+	fetchWeb func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error)
+	// searchFetchWeb is the search-page variant of fetchWeb: same transport
+	// and policy, but a browser-style User-Agent (see webfetch.SearchUserAgent).
+	// nil falls back to fetchWeb, which keeps existing injected transports
+	// working unchanged.
+	searchFetchWeb  func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error)
 	videoFetch      videounderstand.FetchFunc
 	videoTranscribe func(context.Context, []byte) (string, error)
 	weatherClient   *weather.Client
@@ -187,6 +192,23 @@ func New(root string) (*Runtime, error) {
 // SetWebFetcher installs the SSRF-pinned fetch transport for web.* tools.
 func (r *Runtime) SetWebFetcher(f func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error)) {
 	r.fetchWeb = f
+}
+
+// SetSearchWebFetcher installs the search-page fetch transport: the same
+// SSRF-pinned egress as SetWebFetcher but with webfetch.SearchUserAgent, so
+// keyless search frontends serve the genuine SERP instead of a degraded page.
+// When unset, search pages ride the plain web fetcher.
+func (r *Runtime) SetSearchWebFetcher(f func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error)) {
+	r.searchFetchWeb = f
+}
+
+// searchFetch resolves the transport for search-page fetches: the dedicated
+// search fetcher when installed, otherwise the plain web fetcher.
+func (r *Runtime) searchFetch() func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error) {
+	if r.searchFetchWeb != nil {
+		return r.searchFetchWeb
+	}
+	return r.fetchWeb
 }
 
 // SetWeatherFetcher adds the trusted MET-only conditional transport. Existing

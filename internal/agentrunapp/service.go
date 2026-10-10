@@ -67,12 +67,15 @@ type Service struct {
 	cmdRunning sync.WaitGroup
 
 	// M4-G web access: fetchWeb retrieves URLs through the SSRF-pinned
-	// transport (default defaultWebFetch).
-	fetchWeb WebFetcher
+	// transport (default defaultWebFetch). searchFetchWeb is the search-page
+	// variant with a browser-style agent (default defaultSearchFetch); WebSearch
+	// uses it so keyless search frontends serve the genuine SERP.
+	fetchWeb       WebFetcher
+	searchFetchWeb WebFetcher
 }
 
 func New(u UnitOfWork) *Service {
-	return &Service{uow: u, clock: systemClock{}, runCommand: commandworker.Run, fetchWeb: defaultWebFetch}
+	return &Service{uow: u, clock: systemClock{}, runCommand: commandworker.Run, fetchWeb: defaultWebFetch, searchFetchWeb: defaultSearchFetch}
 }
 
 // SetCommandRunner substitutes the process executor. Tests use it to run

@@ -16,6 +16,59 @@ import (
 
 const reliableBingPage = `<li class="b_algo"><h2><a href="https://go.dev/">Go</a></h2><p>The Go language.</p></li>`
 
+// TestSearchRidesTheSearchWebFetcher pins the degraded-SERP fix: search pages
+// must go through the dedicated search fetcher (browser-style agent) when the
+// host installed one, while ordinary evidence fetches keep the plain one.
+func TestSearchRidesTheSearchWebFetcher(t *testing.T) {
+	r, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plainCalls := 0
+	r.SetWebFetcher(func(_ context.Context, _ string) (networkpolicy.FetchResult, error) {
+		plainCalls++
+		return networkpolicy.FetchResult{Status: 200, Body: []byte(reliableBingPage)}, nil
+	})
+	searchCalls := 0
+	r.SetSearchWebFetcher(func(_ context.Context, rawURL string) (networkpolicy.FetchResult, error) {
+		searchCalls++
+		if strings.Contains(rawURL, "duckduckgo") {
+			return networkpolicy.FetchResult{Status: 200, Body: []byte(ddgLiteBody)}, nil
+		}
+		if strings.Contains(rawURL, "bing.com/search") {
+			return networkpolicy.FetchResult{Status: 200, Body: []byte(reliableBingPage)}, nil
+		}
+		t.Fatalf("search fetcher saw non-search URL: %s", rawURL)
+		return networkpolicy.FetchResult{}, nil
+	})
+	response, err := r.searchWeb(context.Background(), "Go", 5)
+	if err != nil || response.Source != "duckduckgo" || len(response.Results) == 0 {
+		t.Fatalf("result=%+v err=%v", response, err)
+	}
+	if searchCalls != 1 || plainCalls != 0 {
+		t.Fatalf("search fetch must win: search=%d plain=%d", searchCalls, plainCalls)
+	}
+	if got, err := r.FirstOrganicOnPage(context.Background(), "https://www.bing.com/search?q=go"); err != nil || got != "https://go.dev/" {
+		t.Fatalf("FirstOrganicOnPage not on search fetcher: %s %v", got, err)
+	}
+}
+
+// TestSearchFallsBackToPlainWebFetcher keeps injected transports that predate
+// the search fetcher working: with only SetWebFetcher installed, search pages
+// ride it unchanged.
+func TestSearchFallsBackToPlainWebFetcher(t *testing.T) {
+	r, _ := New(t.TempDir())
+	calls := 0
+	r.SetWebFetcher(func(_ context.Context, _ string) (networkpolicy.FetchResult, error) {
+		calls++
+		return networkpolicy.FetchResult{Status: 200, Body: []byte(ddgLiteBody)}, nil
+	})
+	response, err := r.searchWeb(context.Background(), "Go", 5)
+	if err != nil || response.Source != "duckduckgo" || calls != 1 {
+		t.Fatalf("result=%+v calls=%d err=%v", response, calls, err)
+	}
+}
+
 func TestFirstOrganicOnPageReadsTheOpenedSearchPage(t *testing.T) {
 	r, err := New(t.TempDir())
 	if err != nil {

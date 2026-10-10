@@ -46,6 +46,18 @@ func defaultWebFetch(ctx context.Context, rawURL string) (networkpolicy.FetchRes
 	})
 }
 
+// defaultSearchFetch fetches search pages through the same SSRF-pinned
+// transport but with the browser-style agent from webfetch.SearchUserAgent:
+// keyless search frontends time out or degrade non-browser agents, so the
+// search ladder needs the browser identity to get genuine results.
+func defaultSearchFetch(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error) {
+	return networkpolicy.Fetch(ctx, rawURL, networkpolicy.FetchOptions{
+		Policy:    networkpolicy.Policy{AllowHTTP: true},
+		Proxy:     egressproxy.Resolver(),
+		UserAgent: webfetch.SearchUserAgent,
+	})
+}
+
 // WebFetchInput is the validated web.fetch request.
 type WebFetchInput struct {
 	RunID string
@@ -194,7 +206,7 @@ func (s *Service) WebSearch(ctx context.Context, key, actor string, request any,
 			return WebSearchResult{}, err
 		}
 		attemptCtx, cancel := context.WithTimeout(ctx, webSearchAttemptTimeout)
-		page, err := s.fetchWeb(attemptCtx, attempt.URL)
+		page, err := s.searchFetch()(attemptCtx, attempt.URL)
 		cancel()
 		if err := ctx.Err(); err != nil {
 			return WebSearchResult{}, err
@@ -348,8 +360,27 @@ func (s *Service) commitWebEvidence(ctx context.Context, op, auditAction, key, a
 	})
 }
 
-// SetWebFetcher substitutes the fetch transport. Tests use it to serve
-// canned pages without network access.
+// SetWebFetcher substitutes the whole fetch transport — search pages
+// included: a caller that installs its own transport owns every fetch, so a
+// previously installed search-page fetcher is dropped and searches ride this
+// one (tests inject one mock and get every fetch from it).
 func (s *Service) SetWebFetcher(f WebFetcher) {
 	s.fetchWeb = f
+	s.searchFetchWeb = nil
+}
+
+// searchFetch resolves the transport for search-page fetches: the dedicated
+// search fetcher when set, otherwise the plain web fetcher (tests that only
+// inject SetWebFetcher keep serving search pages from the same transport).
+func (s *Service) searchFetch() WebFetcher {
+	if s.searchFetchWeb != nil {
+		return s.searchFetchWeb
+	}
+	return s.fetchWeb
+}
+
+// SetSearchWebFetcher substitutes the search-page fetch transport (the
+// browser-agent variant). Tests use it to verify the search ladder rides it.
+func (s *Service) SetSearchWebFetcher(f WebFetcher) {
+	s.searchFetchWeb = f
 }

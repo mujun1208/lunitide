@@ -121,12 +121,13 @@ func (r *Runtime) searchWeb(ctx context.Context, query string, max int) (webSear
 	var lastErr error
 	var lastHits []webfetch.SearchResult
 	var lastSrc, lastURL string
+	searchFetch := r.searchFetch()
 	for _, attempt := range webfetch.SearchAttempts(query) {
 		if err := ctx.Err(); err != nil {
 			return webSearchResponse{}, err
 		}
 		c, cancel := context.WithTimeout(ctx, searchAttemptTimeout)
-		page, err := r.fetchWeb(c, attempt.URL)
+		page, err := searchFetch(c, attempt.URL)
 		cancel()
 		if err := ctx.Err(); err != nil {
 			return webSearchResponse{}, err
@@ -177,10 +178,10 @@ func searchPageLink(raw string) bool {
 // FirstOrganicOnPage reads the search page that is already open and returns its first result link.
 func (r *Runtime) FirstOrganicOnPage(ctx context.Context, pageURL string) (string, error) {
 	pageURL = strings.TrimSpace(pageURL)
-	if r == nil || r.fetchWeb == nil || pageURL == "" {
+	if r == nil || r.searchFetch() == nil || pageURL == "" {
 		return "", fmt.Errorf("web tools unavailable")
 	}
-	page, err := r.fetchWeb(ctx, pageURL)
+	page, err := r.searchFetch()(ctx, pageURL)
 	if err != nil {
 		return "", err
 	}

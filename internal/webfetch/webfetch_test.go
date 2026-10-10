@@ -128,6 +128,16 @@ func TestSearchURLBuildsEscapedQuery(t *testing.T) {
 	}
 }
 
+// TestSearchUserAgentIsBrowserStyle pins the degraded-SERP fix contract: the
+// search fetch must present a browser agent, because keyless search frontends
+// time out or serve canned unrelated results to non-browser agents.
+func TestSearchUserAgentIsBrowserStyle(t *testing.T) {
+	t.Parallel()
+	if !strings.HasPrefix(SearchUserAgent, "Mozilla/5.0 (") || !strings.Contains(SearchUserAgent, "AppleWebKit/") {
+		t.Fatalf("SearchUserAgent lost its browser identity: %q", SearchUserAgent)
+	}
+}
+
 const ddgLitePage = `<html><body>
 <table>
 <tr><td><a class="result-link" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fgo.dev%2Fdoc%2F">Go &amp; Documentation</a></td></tr>

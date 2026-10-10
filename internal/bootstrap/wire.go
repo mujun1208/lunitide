@@ -52,10 +52,10 @@ import (
 	"github.com/lunitide/lunitide/internal/people"
 	"github.com/lunitide/lunitide/internal/planningapp"
 	"github.com/lunitide/lunitide/internal/producthub"
-	"github.com/lunitide/lunitide/internal/remotegateway"
 	"github.com/lunitide/lunitide/internal/projectapp"
 	"github.com/lunitide/lunitide/internal/providerapp"
 	"github.com/lunitide/lunitide/internal/queueapp"
+	"github.com/lunitide/lunitide/internal/remotegateway"
 	"github.com/lunitide/lunitide/internal/scheduler"
 	"github.com/lunitide/lunitide/internal/secret"
 	"github.com/lunitide/lunitide/internal/secretlease"
@@ -67,6 +67,7 @@ import (
 	"github.com/lunitide/lunitide/internal/terminalruntime"
 	"github.com/lunitide/lunitide/internal/toolruntime"
 	"github.com/lunitide/lunitide/internal/tts"
+	"github.com/lunitide/lunitide/internal/webfetch"
 	"github.com/lunitide/lunitide/internal/widgetapp"
 )
 
@@ -514,6 +515,11 @@ func WireEngine(ctx context.Context, deps EngineDeps) (*app.Engine, func(), erro
 	// fetch (plain HTTP allowed for public read-only content).
 	tools.SetWebFetcher(func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error) {
 		return networkpolicy.Fetch(ctx, rawURL, networkpolicy.FetchOptions{Policy: networkpolicy.Policy{AllowHTTP: true}, Proxy: egressproxy.Resolver()})
+	})
+	// Search pages need a browser-style agent: keyless search frontends time
+	// out or serve degraded results to non-browser agents.
+	tools.SetSearchWebFetcher(func(ctx context.Context, rawURL string) (networkpolicy.FetchResult, error) {
+		return networkpolicy.Fetch(ctx, rawURL, networkpolicy.FetchOptions{Policy: networkpolicy.Policy{AllowHTTP: true}, Proxy: egressproxy.Resolver(), UserAgent: webfetch.SearchUserAgent})
 	})
 	tools.SetWeatherFetcher(fetchWeather)
 	// Full-access file tools read/write inside the user-selected workspace

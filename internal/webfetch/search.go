@@ -11,6 +11,14 @@ import (
 // It is fetched through the same SSRF-pinned transport as any other URL.
 const SearchEndpoint = "https://lite.duckduckgo.com/lite/"
 
+// SearchUserAgent is the browser-style agent search pages are fetched with.
+// Keyless search frontends degrade non-browser agents: DuckDuckGo Lite times
+// them out entirely, and Bing serves overseas keyless requests a canned page
+// of unrelated popular results. A real browser agent gets the genuine SERP
+// from the same endpoints, so the search fetch sends one while ordinary
+// evidence fetches keep the honest "local agent" identity.
+const SearchUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
 // BingSearchEndpoint and BingCNSearchEndpoint are keyless HTML fallbacks when
 // DuckDuckGo Lite is slow or blocked (common on some networks).
 const BingSearchEndpoint = "https://www.bing.com/search"
