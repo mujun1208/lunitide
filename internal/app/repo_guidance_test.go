@@ -34,6 +34,35 @@ func TestRepoGuidanceInjectionReadsAgentsAndLocalSkills(t *testing.T) {
 	}
 }
 
+// capability-self-bootstrap P4: LUNITIDE.md is the project-level
+// tool-preference declaration; it chains beside AGENTS.md with its own
+// label, and stands alone when AGENTS.md is absent.
+func TestRepoGuidanceIncludesLunitideMarkdown(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("Keep tests."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "LUNITIDE.md"), []byte("工具偏好：网页抓取优先用已连接的 Fetch MCP。"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := repoGuidanceInjection(root)
+	if !strings.Contains(got, "Keep tests.") {
+		t.Fatalf("missing AGENTS.md: %s", got)
+	}
+	if !strings.Contains(got, "LUNITIDE.md") || !strings.Contains(got, "Fetch MCP") {
+		t.Fatalf("missing LUNITIDE.md section: %s", got)
+	}
+
+	solo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(solo, "LUNITIDE.md"), []byte("检索一律先用 web.search。"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = repoGuidanceInjection(solo)
+	if !strings.Contains(got, "LUNITIDE.md（") || !strings.Contains(got, "web.search") {
+		t.Fatalf("standalone LUNITIDE.md must inject: %s", got)
+	}
+}
+
 func isolateHomeAgentSkills(t *testing.T) {
 	t.Helper()
 	empty := t.TempDir()

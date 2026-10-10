@@ -107,6 +107,9 @@ type Runtime struct {
 	imSend     func(ctx context.Context, kind, to, text string) (desktopApp, output string, err error)
 	imAllowed  func(channel string) bool
 	officeExec func(context.Context, string, string, json.RawMessage) ([]byte, string, string, error)
+	// mcpInstaller runs mcp.install through the host's preset pipeline
+	// (capability-self-bootstrap P3); nil keeps the tool unavailable.
+	mcpInstaller func(ctx context.Context, session string, raw json.RawMessage) (string, error)
 	// documentText optionally replaces doctext.ExtractContext for Office/PDF
 	// reads so OCR can run without this package importing app.
 	documentText func(ctx context.Context, name string, raw []byte, media string) (text, kind, method string, pages int, err error)
@@ -369,7 +372,7 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 	if !approved && toolEditsOpenPage(ctx, name, args) {
 		approved = true
 	}
-	mutating := name == "workspace.write" || name == "workspace.edit" || name == "workspace.restore" || name == "workspace.accept" || name == "command.run" || name == "system.run" || name == "desktop.open" || name == "desktop.quit" || name == "desktop.browse" || name == "desktop.type" || name == "media.play" || name == "im.send" || officeGenTools[name] || ccToolChangesMachine(name, args)
+	mutating := name == "workspace.write" || name == "workspace.edit" || name == "workspace.restore" || name == "workspace.accept" || name == "command.run" || name == "system.run" || name == "desktop.open" || name == "desktop.quit" || name == "desktop.browse" || name == "desktop.type" || name == "media.play" || name == "im.send" || name == "mcp.install" || officeGenTools[name] || ccToolChangesMachine(name, args)
 	if mutating && !approved && (hooks.forceApproval || mode == Approval || ((name == "command.run" || name == "system.run") && mode == AutoEdit)) {
 		// Remembered exact approvals (P1-5) satisfy the gate without a new
 		// round-trip; unmatched or argument-variant calls still gate.
@@ -410,6 +413,20 @@ func (r *Runtime) execute(ctx context.Context, mode Mode, session, name string, 
 		}
 		written.Output = summary + "\n" + written.Output
 		return written, nil
+	case "mcp.install":
+		// Engine-delegated like the office tools, but mutating: installing a
+		// preset adds a third-party MCP server to this machine, so approval
+		// mode gates it through the standard pending/decide flow here
+		// (capability-self-bootstrap P3). The host owns the preset catalog,
+		// stdio admission whitelist and credential routing.
+		if r.mcpInstaller == nil {
+			return Result{}, errors.New("MCP 服务暂时不可用")
+		}
+		out, err := r.mcpInstaller(ctx, session, args)
+		if err != nil {
+			return Result{}, err
+		}
+		return result(out), nil
 	case "workspace.list":
 		var a struct {
 			Path string `json:"path"`

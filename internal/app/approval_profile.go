@@ -18,12 +18,13 @@ import (
 func ungatedEngineToolDenied(mode executionMode, _ bool, name string, args json.RawMessage) (string, bool) {
 	gated := mode == executionModeApproval
 	switch strings.TrimSpace(name) {
-	case "mcp.install", "plugin.install":
-		// Voice and text share the same operator-selected execution mode.
+	case "plugin.install":
+		// mcp.install now routes through the tool runtime and its approval
+		// gate (capability-self-bootstrap P3); plugin.install stays here.
 		if !gated {
 			return "", false
 		}
-		return "ok:false\n" + name + " 会给本机装上新的服务端或插件，这条链路暂时没有审批弹窗，本轮不执行。请在设置里手动安装。", true
+		return "ok:false\nplugin.install 会给本机装上新的插件，这条链路暂时没有审批弹窗，本轮不执行。请在设置里手动安装。", true
 	case "mcp.call":
 		// The far side is a third-party server; the engine cannot know whether
 		// it writes, so it assumes it does.
@@ -96,6 +97,9 @@ func browserActActuates(args json.RawMessage) bool {
 
 // Companion keeps full-access for low-risk tools (approved once).
 // Dangerous names always raise approval_required — never session-approve.
+// mcp.install is dangerous on purpose (capability-self-bootstrap P3): adding
+// a third-party MCP server is a trust decision, so even voice turns get the
+// approval card instead of a silent companion auto-approve.
 func approvalProfileDangerous(name string) bool {
 	n := strings.TrimSpace(name)
 	if n == "" {
@@ -105,7 +109,7 @@ func approvalProfileDangerous(name string) bool {
 		return true
 	}
 	switch n {
-	case "command.run", "run_terminal_cmd", "im.send", "computer.act":
+	case "command.run", "run_terminal_cmd", "im.send", "computer.act", "mcp.install":
 		return true
 	default:
 		return false

@@ -122,7 +122,7 @@ func collapseOversizedMcpTools(defs []llmadapter.ToolDefinition) []llmadapter.To
 
 func mcpGatewayToolDefinitions(n int) []llmadapter.ToolDefinition {
 	return []llmadapter.ToolDefinition{
-		{Name: "mcp.search", Description: fmt.Sprintf("Search the %d connected MCP tools by name or description; then call mcp.call with the returned name", n), Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":200}},"required":["query"],"additionalProperties":false}`)},
+		{Name: "mcp.search", Description: fmt.Sprintf("Search the %d tools on the currently connected MCP endpoints by name or description; then call mcp.call with the returned name. Only endpoints already connected in Settings are searched — this is not an installable-tool marketplace. When no tool fits the task, do not answer a bare \"no such tool\": name the missing capability, tell the user they can add it by connecting the matching MCP endpoint in Settings, and follow their choice", n), Schema: []byte(`{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":200}},"required":["query"],"additionalProperties":false}`)},
 		{Name: "mcp.call", Description: "Invoke one MCP tool previously returned by mcp.search (name is mcp_<endpoint>_<tool>)", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":64},"arguments":{"type":"object"}},"required":["name"],"additionalProperties":false}`)},
 	}
 }

@@ -361,6 +361,12 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		turnInstruction += desktopExecutionInstruction()
 		desktopInstructionAdded = true
 	}
+	// Missing-capability exit (capability-self-bootstrap P1-3): only turns
+	// that actually carry tools need the contract; a prose-only turn has
+	// nothing to look up.
+	if wantsTools {
+		turnInstruction += capabilityExitInstruction()
+	}
 	// Moon Companion: Doubao-style voice. First audible sentence must
 	// land in TTS immediately (period-terminated, 8–20 chars). Later
 	// sentences stay short so synthesis overlaps playback. Tools stay
@@ -1940,6 +1946,13 @@ func approvalRequiredSummary(name string, args json.RawMessage) string {
 	if name == "user.ask" {
 		if packed := toolruntime.UserAskApprovalSummary(args); packed != "" {
 			return truncateUTF8Bytes(packed, toolSummaryMaxBytes)
+		}
+	}
+	if name == "mcp.install" {
+		// capability-self-bootstrap P3: the card must state what gets
+		// installed and where its data goes, not just "approval required".
+		if s := mcpInstallApprovalSummary(args); s != "" {
+			return truncateUTF8Bytes(s, toolSummaryMaxBytes)
 		}
 	}
 	return "approval required"

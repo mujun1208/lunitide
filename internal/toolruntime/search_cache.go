@@ -1,7 +1,6 @@
 package toolruntime
 
 import (
-	"strings"
 	"sync"
 	"time"
 
@@ -106,15 +105,4 @@ func boundedWebSearchResponse(hits []webfetch.SearchResult, source, pageURL stri
 		}
 	}
 	return response
-}
-
-func searchChallengePage(body string) bool {
-	// Match challenge markup, not incidental result text mentioning captcha.
-	lower := strings.ToLower(body)
-	for _, marker := range []string{`id="challenge-form"`, `id='challenge-form'`, `id="anomaly-modal"`, `class="anomaly-modal`, `id="b_captcha"`, `id='b_captcha'`} {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
 }

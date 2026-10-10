@@ -1363,7 +1363,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
 						continue
 					}
-					if call.Name == "mcp.presets" || call.Name == "mcp.install" || call.Name == "plugin.search" || call.Name == "plugin.install" {
+					// mcp.install deliberately routes through the tool runtime
+					// below (capability-self-bootstrap P3): the runtime's
+					// approval gate, hooks and audit cover preset installs.
+					if call.Name == "mcp.presets" || call.Name == "plugin.search" || call.Name == "plugin.install" || call.Name == "capability.discover" {
 						summary, invokeErr := e.invokeSettingsPlaneTool(op, call.Name, call.Arguments)
 						if invokeErr != nil {
 							summary = invokeErr.Error()

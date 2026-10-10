@@ -406,7 +406,13 @@ func looksLikeCurrentLookupTurn(text string) bool {
 		"天气", "气温", "温度", "火车", "高铁", "动车", "车次", "火车票", "航班", "机票",
 		"股价", "汇率", "新闻", "热搜", "票价", "时刻表", "几点发车", "几点到",
 		"行情", "沪深", "上证", "深证", "创业板", "股票", "大盘", "涨跌", "金价", "油价",
+		// Generic lookup verbs. "帮我查询某公司相关信息" is as much a lookup
+		// as "查今天天气": without them the turn lands on a lane whose tool
+		// list has no web search, and the model can only report that it has
+		// no such tool.
+		"查询", "查一下", "查一查", "查查", "搜一下", "搜索", "搜搜", "查找", "资讯", "资料",
 		"weather", "train", "flight", "stock price", "exchange rate", "latest news",
+		"search", "look up",
 	} {
 		if strings.Contains(t, needle) || strings.Contains(lower, strings.ToLower(needle)) {
 			return true

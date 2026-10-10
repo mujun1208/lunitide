@@ -81,6 +81,21 @@ export function browserFollowURL(text: string): string {
   return `https://www.baidu.com/s?wd=${encodeURIComponent(query)}`
 }
 
+/**
+ * True when the user explicitly asked to open a page (a pasted address, an
+ * "open this link" ask, or 打开百度). A generic 搜索/查一下 ask is not an
+ * open ask: the workspace browser panel must not pop up on its own — the
+ * user clicks the tab or an artifact when they want to see it.
+ */
+export function browserOpenAsk(text: string): boolean {
+  const raw = text.trim()
+  if (!raw || raw.length > 300) return false
+  if (/^https?:\/\//i.test(raw)) return true
+  if (/https?:\/\/[^\s<>，。！？]+/i.test(raw) && /打开|访问|看看|浏览|去/.test(raw)) return true
+  if (/打开\s*百度/.test(raw)) return true
+  return false
+}
+
 const previewOrigin = 'https://preview.lunitide.local/'
 
 export function openPreviewFrame(): HTMLIFrameElement | null {

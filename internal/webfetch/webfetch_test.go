@@ -249,3 +249,60 @@ func TestRenderSearchHTMLEscapesAndLists(t *testing.T) {
 		t.Fatalf("missing escaped content: %s", out)
 	}
 }
+
+func TestSearchAttemptsLadderOrder(t *testing.T) {
+	t.Parallel()
+	attempts := SearchAttempts("hello world")
+	if len(attempts) != 3 {
+		t.Fatalf("attempts=%d: %+v", len(attempts), attempts)
+	}
+	if attempts[0].Source != "duckduckgo" || attempts[0].URL != SearchURL("hello world") {
+		t.Fatalf("first=%+v", attempts[0])
+	}
+	if attempts[1].Source != "bing" || attempts[1].URL != BingCNSearchURL("hello world") {
+		t.Fatalf("second=%+v", attempts[1])
+	}
+	if attempts[2].Source != "bing" || attempts[2].URL != BingSearchURL("hello world") {
+		t.Fatalf("third=%+v", attempts[2])
+	}
+}
+
+func TestParseSearchSourceDispatchesBySource(t *testing.T) {
+	t.Parallel()
+	ddg := ParseSearchSource("duckduckgo", ddgLitePage, 10)
+	if len(ddg) != 2 || ddg[0].URL != "https://go.dev/doc/" {
+		t.Fatalf("duckduckgo=%+v", ddg)
+	}
+	bing := ParseSearchSource("bing", bingPage, 10)
+	if len(bing) != 2 || bing[0].URL != "https://news.example/jay" {
+		t.Fatalf("bing=%+v", bing)
+	}
+	// Unknown source tags fall back to the DuckDuckGo parser.
+	if got := ParseSearchSource("other", ddgLitePage, 10); len(got) != 2 {
+		t.Fatalf("fallback=%+v", got)
+	}
+}
+
+func TestChallengePageDetectsBotInterstitials(t *testing.T) {
+	t.Parallel()
+	for _, body := range []string{
+		`<html><form id="challenge-form">prove you are human</form></html>`,
+		`<html><form id='challenge-form'>prove you are human</form></html>`,
+		`<html><div class="anomaly-modal">blocked</div></html>`,
+		`<html><div id="b_captcha">captcha</div></html>`,
+	} {
+		if !ChallengePage(body) {
+			t.Errorf("challenge not detected: %q", body)
+		}
+	}
+	for _, body := range []string{
+		"",
+		`<html><body>results that merely mention captcha bypass</body></html>`,
+		ddgLitePage,
+		bingPage,
+	} {
+		if ChallengePage(body) {
+			t.Errorf("false positive on %q", body)
+		}
+	}
+}

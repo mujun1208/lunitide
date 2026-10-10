@@ -886,6 +886,14 @@ func wideFallbackKeep(goal string, prior bool, lane ChatLane) map[string]bool {
 	if laneLooksLikeInPlaceProse(goal) || lane == LaneL1 {
 		return keep
 	}
+	// A full-surface lane that matched no known job still keeps the public
+	// web: the agent must be able to look things up instead of reporting
+	// that it has no such tool. L1 and the office lanes stay narrow on
+	// purpose — their lane filter strips the web again anyway.
+	if lane == LaneL3 || lane == LaneL4 {
+		keep["web.search"] = true
+		keep["web.fetch"] = true
+	}
 	write, run := fileLandingNeed(goal, prior)
 	if write || lane == LaneL2 || lane == LaneL2Ask || lane == LaneL3 {
 		keep["workspace.read"] = true
@@ -989,7 +997,7 @@ func pickTaskTools(filtered, catalog []llmadapter.ToolDefinition, keep map[strin
 		if d.Name == "" || seen[d.Name] {
 			return
 		}
-		if keep[d.Name] || strings.HasPrefix(d.Name, mcpToolPrefix) || d.Name == "mcp.search" || d.Name == "mcp.call" {
+		if keep[d.Name] || isGatewayTool(d.Name) {
 			seen[d.Name] = true
 			out = append(out, d)
 		}

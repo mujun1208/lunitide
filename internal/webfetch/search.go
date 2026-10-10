@@ -131,6 +131,48 @@ func ParseBingResults(page string, max int) []SearchResult {
 	return results
 }
 
+// SearchAttempt is one keyless HTML search endpoint to try, in fallback
+// order, tagged with the source its results are parsed by.
+type SearchAttempt struct {
+	URL    string
+	Source string
+}
+
+// SearchAttempts returns the fallback ladder for query: DuckDuckGo Lite
+// first, then the Bing mirrors. The ladder is shared by the tool runtime
+// and the agent-run evidence path so both degrade the same way when one
+// source is slow, blocked or serving a challenge page.
+func SearchAttempts(query string) []SearchAttempt {
+	return []SearchAttempt{
+		{URL: SearchURL(query), Source: "duckduckgo"},
+		{URL: BingCNSearchURL(query), Source: "bing"},
+		{URL: BingSearchURL(query), Source: "bing"},
+	}
+}
+
+// ParseSearchSource extracts organic results from a search page body by
+// the source tag of the attempt that fetched it.
+func ParseSearchSource(source, page string, max int) []SearchResult {
+	if source == "bing" {
+		return ParseBingResults(page, max)
+	}
+	return ParseSearchResults(page, max)
+}
+
+// ChallengePage reports whether a search page body is a bot challenge
+// (captcha or anomaly interstitial) instead of real results, so callers
+// fall through to the next search source instead of parsing garbage.
+func ChallengePage(body string) bool {
+	// Match challenge markup, not incidental result text mentioning captcha.
+	lower := strings.ToLower(body)
+	for _, marker := range []string{`id="challenge-form"`, `id='challenge-form'`, `id="anomaly-modal"`, `class="anomaly-modal`, `id="b_captcha"`, `id='b_captcha'`} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // RenderSearchHTML builds a dark, network-blocked preview of ranked results
 // for the in-app workspace browser tab.
 func RenderSearchHTML(query string, results []SearchResult) string {

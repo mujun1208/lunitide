@@ -131,7 +131,7 @@ func applyToolProfile(defs []llmadapter.ToolDefinition, profile toolProfile) []l
 	}
 	if profile == toolProfileMinimal || profile == toolProfileCoding {
 		for _, d := range defs {
-			if strings.HasPrefix(d.Name, mcpToolPrefix) || d.Name == "mcp.search" || d.Name == "mcp.call" {
+			if isGatewayTool(d.Name) {
 				allow[d.Name] = true
 			}
 		}

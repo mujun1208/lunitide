@@ -492,6 +492,11 @@ func (e *Engine) SetToolRuntime(r *toolruntime.Runtime) {
 			return e.lookupPhaseProjectRoot(context.Background(), sessionID)
 		})
 	}
+	if r != nil {
+		// capability-self-bootstrap P3: mcp.install runs through the runtime so
+		// the standard approval gate, hooks and audit cover preset installs.
+		r.SetMcpInstaller(e.installMcpPresetViaRuntime)
+	}
 	e.wireDocumentText()
 	e.wireIMSendGate()
 }

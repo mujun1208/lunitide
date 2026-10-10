@@ -165,8 +165,7 @@ func TestHostToolFallbackIntentCoversVoiceAndTypedTasks(t *testing.T) {
 }
 
 func TestLookupFallbackHonorsOfflineAndReferenceOnlyDocuments(t *testing.T) {
-	for _, goal := range []string{
-		"把已完成的新闻报告转为 Word，不联网，只使用附件内容。",
+	for _, goal := range []string{"把已有资料整理成 Word，不要搜索。", "把已完成的新闻报告转为 Word，不联网，只使用附件内容。",
 		"将以上天气数据生成文档，不要搜索。",
 		"将已有新闻整理成 Word，保留来源链接。",
 		"将已有新闻搜索结果整理成 Word，保留来源。",
@@ -180,7 +179,7 @@ func TestLookupFallbackHonorsOfflineAndReferenceOnlyDocuments(t *testing.T) {
 			t.Fatalf("offline/reference task requested lookup: %s", goal)
 		}
 	}
-	for _, goal := range []string{"查今天合肥天气", "今天沪深指数怎么样", "搜索最新新闻并生成 Word", "将已有报告转为 Word，再查询最新股价", "Search latest news and create a Word report", "不要搜索旧新闻，请搜索今天最新新闻", "将已有报告转为 Word，并搜索最新新闻补充", "Convert the existing report to Word and search latest news"} {
+	for _, goal := range []string{"查今天合肥天气", "今天沪深指数怎么样", "搜索最新新闻并生成 Word", "将已有报告转为 Word，再查询最新股价", "Search latest news and create a Word report", "不要搜索旧新闻，请搜索今天最新新闻", "将已有报告转为 Word，并搜索最新新闻补充", "Convert the existing report to Word and search latest news", "帮我查询中航材利顿航空科技股份有限公司，相关信息", "帮我找点行业资讯", "搜一下市面上类似的产品"} {
 		if !looksLikeCurrentLookupTurn(goal) || len(fallbackWebSearchArgs(goal)) == 0 {
 			t.Fatalf("requested lookup suppressed: %s", goal)
 		}

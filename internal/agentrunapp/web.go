@@ -82,6 +82,10 @@ const (
 	webEvidenceKindFetch  = "web.fetch"
 	webEvidenceKindSearch = "web.search"
 	webSearchMaxCap       = 10
+	// webSearchAttemptTimeout bounds one keyless search source fetch so a
+	// slow or blocked endpoint falls through to the next mirror instead of
+	// stalling the run (capability-self-bootstrap P1-1).
+	webSearchAttemptTimeout = 8 * time.Second
 )
 
 // WebFetch retrieves one public URL through the SSRF policy and records the
@@ -143,8 +147,9 @@ func (s *Service) WebFetch(ctx context.Context, key, actor string, request any, 
 	return result, err
 }
 
-// WebSearch runs one query against the fixed search endpoint through the same
-// SSRF-pinned transport and records the result-set evidence.
+// WebSearch runs one query through the keyless HTML search ladder
+// (DuckDuckGo Lite, then the Bing mirrors) on the same SSRF-pinned
+// transport and records the result-set evidence from the winning source.
 func (s *Service) WebSearch(ctx context.Context, key, actor string, request any, in WebSearchInput) (WebSearchResult, error) {
 	if !providerapp.ValidIdempotencyKey(key) {
 		return WebSearchResult{}, ErrIdempotencyKeyRequired
@@ -174,16 +179,62 @@ func (s *Service) WebSearch(ctx context.Context, key, actor string, request any,
 	if max > webSearchMaxCap {
 		max = webSearchMaxCap
 	}
-	searchURL := webfetch.SearchURL(in.Query)
-	page, err := s.fetchWeb(ctx, searchURL)
-	if err != nil {
-		return WebSearchResult{}, err
+	// Keyless HTML search over the shared fallback ladder: one slow or
+	// blocked source degrades to the next instead of failing the whole
+	// search, and challenge pages and non-2xx responses are treated as
+	// source failures (capability-self-bootstrap P1-1).
+	var (
+		results   []webfetch.SearchResult
+		body      []byte
+		searchURL string
+		lastErr   error
+	)
+	for _, attempt := range webfetch.SearchAttempts(in.Query) {
+		if err := ctx.Err(); err != nil {
+			return WebSearchResult{}, err
+		}
+		attemptCtx, cancel := context.WithTimeout(ctx, webSearchAttemptTimeout)
+		page, err := s.fetchWeb(attemptCtx, attempt.URL)
+		cancel()
+		if err := ctx.Err(); err != nil {
+			return WebSearchResult{}, err
+		}
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if page.Status < 200 || page.Status >= 300 {
+			lastErr = fmt.Errorf("web search %s returned HTTP %d; no search results confirmed", attempt.Source, page.Status)
+			continue
+		}
+		if webfetch.ChallengePage(string(page.Body)) {
+			lastErr = fmt.Errorf("web search %s requires browser verification; no search results confirmed", attempt.Source)
+			continue
+		}
+		if _, ok := webfetch.ExtractText(page.ContentType, page.Body, 1); !ok {
+			lastErr = fmt.Errorf("%w: %s", ErrUnsupportedContent, page.ContentType)
+			continue
+		}
+		hits := webfetch.ParseSearchSource(attempt.Source, string(page.Body), max)
+		if len(hits) == 0 {
+			lastErr = fmt.Errorf("web search %s returned no results", attempt.Source)
+			continue
+		}
+		results = hits
+		body = page.Body
+		searchURL = page.FinalURL
+		if searchURL == "" {
+			searchURL = attempt.URL
+		}
+		break
 	}
-	if _, ok := webfetch.ExtractText(page.ContentType, page.Body, 1); !ok {
-		return WebSearchResult{}, fmt.Errorf("%w: %s", ErrUnsupportedContent, page.ContentType)
+	if len(results) == 0 {
+		if lastErr == nil {
+			lastErr = errors.New("web search returned no results from any source")
+		}
+		return WebSearchResult{}, lastErr
 	}
-	results := webfetch.ParseSearchResults(string(page.Body), max)
-	bodyDigest := sha256.Sum256(page.Body)
+	bodyDigest := sha256.Sum256(body)
 	now := s.clock.Now().UTC()
 	result = WebSearchResult{
 		Evidence: agentrun.Evidence{

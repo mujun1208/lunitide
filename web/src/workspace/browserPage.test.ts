@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { browserClickTarget, browserFollowURL, filePageURL, filePathFromPageURL, previewShouldReload, promptWithBrowserPage } from './browserPage'
+import { browserClickTarget, browserFollowURL, browserOpenAsk, filePageURL, filePathFromPageURL, previewShouldReload, promptWithBrowserPage } from './browserPage'
 
 it('keeps the user words and appends the open page for the model', () => {
   expect(promptWithBrowserPage('赢单率是多少', '赢单率 75%')).toBe('赢单率是多少\n\n[浏览器页面]\n赢单率 75%')
@@ -47,6 +47,16 @@ it('sends a lookup or an address into the side browser', () => {
   expect(browserFollowURL('打开百度')).toBe('https://www.baidu.com/')
   expect(browserFollowURL('打开客户')).toBe('')
   expect(browserFollowURL('你好')).toBe('')
+})
+
+it('tells an explicit open ask apart from a generic search so the panel only pops when asked', () => {
+  expect(browserOpenAsk('打开 https://www.baidu.com/')).toBe(true)
+  expect(browserOpenAsk('https://example.com/page')).toBe(true)
+  expect(browserOpenAsk('打开百度')).toBe(true)
+  expect(browserOpenAsk('查一下 国庆放假')).toBe(false)
+  expect(browserOpenAsk('帮我查询中航材利顿航空科技股份有限公司，相关信息')).toBe(false)
+  expect(browserOpenAsk('搜索一下竞品')).toBe(false)
+  expect(browserOpenAsk('你好')).toBe(false)
 })
 
 it('follows a short open or click onto the page that is already open', () => {

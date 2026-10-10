@@ -19,11 +19,16 @@ import (
 // wrap the existing settings-plane services — they do not unfreeze the
 // M5 mcp.invoke stub.
 func (e *Engine) settingsPlaneToolDefinitions() []llmadapter.ToolDefinition {
-	var defs []llmadapter.ToolDefinition
+	// capability.discover is unconditional: it works with zero MCP services
+	// wired (built-in tools and skills still match) and is the escape hatch
+	// for "no such tool" turns (capability-self-bootstrap P2).
+	defs := []llmadapter.ToolDefinition{
+		{Name: "capability.discover", Description: "Discover how to get a capability the current tool list lacks. Give need as one short sentence about what the task requires (e.g. 搜索某公司公开信息 / 深度编辑已有 Word / 生成图表). It searches built-in tools, connected MCP endpoint tools, installed skills, and the curated one-click MCP preset catalog, and returns matches with how to use or install each. Call this BEFORE answering that something cannot be done for lack of a tool; never claim a capability exists without a match here.", Schema: []byte(`{"type":"object","properties":{"need":{"type":"string","minLength":1,"maxLength":400}},"required":["need"],"additionalProperties":false}`)},
+	}
 	if e.m7mcp != nil {
 		defs = append(defs,
 			llmadapter.ToolDefinition{Name: "mcp.presets", Description: "List curated one-click MCP presets for mcp.install. The current catalog is free and needs no token. Filesystem already has a local sandbox path in argDefault; do not ask the user to type a directory or API key.", Schema: []byte(`{"type":"object","properties":{},"additionalProperties":false}`)},
-			llmadapter.ToolDefinition{Name: "mcp.install", Description: "Install one curated MCP preset from mcp.presets by presetId. Do not ask for a path, token, or connection string; omit arg and the sandbox is used automatically for filesystem.", Schema: []byte(`{"type":"object","properties":{"presetId":{"type":"string","minLength":1,"maxLength":64},"arg":{"type":"string","maxLength":512,"description":"unused for the current one-click catalog; filesystem sandboxes itself when omitted"}},"required":["presetId"],"additionalProperties":false}`)},
+			llmadapter.ToolDefinition{Name: "mcp.install", Description: "Install one curated MCP preset from mcp.presets by presetId. Ask the user first. Do not ask for a path, token, or connection string; omit arg and the sandbox is used automatically for filesystem. In manual-approval mode an approval card pops up and the install runs once the user approves; tools become available from the next turn, so report the install result and continue the task then.", Schema: []byte(`{"type":"object","properties":{"presetId":{"type":"string","minLength":1,"maxLength":64},"arg":{"type":"string","maxLength":512,"description":"unused for the current one-click catalog; filesystem sandboxes itself when omitted"}},"required":["presetId"],"additionalProperties":false}`)},
 		)
 	}
 	if e.m8plugin != nil {
@@ -39,8 +44,10 @@ func (e *Engine) invokeSettingsPlaneTool(ctx context.Context, name string, raw j
 	switch name {
 	case "mcp.presets":
 		return e.invokeMcpPresets()
-	case "mcp.install":
-		return e.invokeMcpInstallPreset(ctx, raw)
+	// mcp.install is deliberately absent: it executes through the tool
+	// runtime so the approval gate covers it (capability-self-bootstrap P3).
+	case "capability.discover":
+		return e.discoverCapabilities(ctx, raw)
 	case "plugin.search":
 		return e.invokePluginSearch(ctx, raw)
 	case "plugin.install":
@@ -92,6 +99,12 @@ func (e *Engine) invokeMcpInstallPreset(ctx context.Context, raw json.RawMessage
 	if !ok {
 		return "", errors.New("unknown MCP preset id; call mcp.presets first")
 	}
+	// capability-self-bootstrap P4: installs stay idempotent. A surviving
+	// endpoint for this preset means reconnect, never a duplicate Add.
+	if endpointID, live := e.installedPresetEndpoint(preset.ID); live {
+		b, _ := json.Marshal(map[string]any{"endpointId": endpointID, "state": "already_installed", "presetId": preset.ID, "note": "该预置此前已安装，本轮未重复安装。若其工具未挂载，请在设置中重新连接该端点。"})
+		return string(b), nil
+	}
 	args := preset.Args
 	if preset.NeedsArgs {
 		arg := strings.TrimSpace(a.Arg)
@@ -118,7 +131,7 @@ func (e *Engine) invokeMcpInstallPreset(ctx context.Context, raw json.RawMessage
 		return "", err
 	}
 	if preset.NeedsCredential {
-		b, _ := json.Marshal(map[string]any{"endpointId": res.EndpointID, "state": "needs_configuration", "presetId": preset.ID, "message": "已保存配置。请在 MCP 已安装列表中配置凭据，再连接；不要把密钥发送到对话。"})
+		b, _ := json.Marshal(map[string]any{"endpointId": res.EndpointID, "state": "needs_configuration", "presetId": preset.ID, "message": "已保存配置。请在 MCP 已安装列表中配置凭据，再连接；不要把密钥发送到对话。配置并连接后，工具从下一轮对话开始生效。"})
 		return string(b), nil
 	}
 	ep, err := e.m7mcp.Toggle(ctx, res.EndpointID, true, "chat")
@@ -130,8 +143,50 @@ func (e *Engine) invokeMcpInstallPreset(ctx context.Context, raw json.RawMessage
 	}
 	e.rememberMcpPreset(res.EndpointID, preset.ID)
 	e.attachDeclaredBindKeys(ctx, m8app.BoundMcpPrefix+preset.ID)
-	b, _ := json.Marshal(map[string]any{"endpointId": res.EndpointID, "state": ep.State, "presetId": preset.ID})
+	b, _ := json.Marshal(map[string]any{"endpointId": res.EndpointID, "state": ep.State, "presetId": preset.ID, "note": "已安装并连接。新工具从下一轮对话开始生效；本轮向用户报告安装结果即可，不要重复安装。"})
 	return string(b), nil
+}
+
+// installMcpPresetViaRuntime adapts invokeMcpInstallPreset to the
+// toolruntime installer hook (capability-self-bootstrap P3). The runtime owns
+// the approval gate; this closure only runs once a call is approved or in a
+// mode that does not gate installs. A successful (user-approved) install is
+// also settled into semantic memory (P4).
+func (e *Engine) installMcpPresetViaRuntime(ctx context.Context, sessionID string, raw json.RawMessage) (string, error) {
+	out, err := e.invokeMcpInstallPreset(ctx, raw)
+	if err != nil {
+		return out, err
+	}
+	var res struct {
+		State    string `json:"state"`
+		PresetID string `json:"presetId"`
+	}
+	if json.Unmarshal([]byte(out), &res) == nil {
+		e.recordApprovedMcpPreset(ctx, sessionID, res.PresetID, res.State)
+	}
+	return out, nil
+}
+
+// mcpInstallApprovalSummary renders the permission and data-flow card for an
+// mcp.install approval: what gets installed, what it can touch on this
+// machine, and where credentials go. Empty falls back to the generic summary.
+func mcpInstallApprovalSummary(raw json.RawMessage) string {
+	var a struct {
+		PresetID string `json:"presetId"`
+	}
+	if json.Unmarshal(raw, &a) != nil {
+		return ""
+	}
+	preset, ok := mcp6.PresetByID(strings.TrimSpace(a.PresetID))
+	if !ok {
+		return ""
+	}
+	cred := "无需密钥"
+	if preset.NeedsCredential {
+		cred = "需要密钥：安装后在设置页配置，密钥不进对话"
+	}
+	return "安装 MCP 服务器 " + preset.Name + "：" + preset.Description +
+		"。将在本机以 " + preset.Command + " 启动第三方服务端并可访问网络；" + cred + "。批准即代表信任该服务端。"
 }
 
 func (e *Engine) invokePluginSearch(ctx context.Context, raw json.RawMessage) (string, error) {

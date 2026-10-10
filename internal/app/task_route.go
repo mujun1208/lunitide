@@ -264,7 +264,7 @@ func applyTaskRoute(defs []llmadapter.ToolDefinition, route TaskRoute, allow map
 		keep["todo.write"] = true
 	}
 	for _, d := range defs {
-		if strings.HasPrefix(d.Name, mcpToolPrefix) || d.Name == "mcp.search" || d.Name == "mcp.call" {
+		if isGatewayTool(d.Name) {
 			keep[d.Name] = true
 		}
 		switch d.Name {

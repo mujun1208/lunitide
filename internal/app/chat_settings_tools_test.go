@@ -8,8 +8,15 @@ import (
 
 func TestSettingsPlaneToolsHiddenWithoutServices(t *testing.T) {
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
-	if defs := e.settingsPlaneToolDefinitions(); len(defs) != 0 {
-		t.Fatalf("expected no settings-plane tools without services, got %#v", defs)
+	var names []string
+	for _, d := range e.settingsPlaneToolDefinitions() {
+		names = append(names, d.Name)
+	}
+	// capability.discover is self-contained (static builtin keywords + preset
+	// catalog, nil-safe on MCP/skill services) and must survive even when the
+	// settings-plane services are absent; everything service-bound stays hidden.
+	if len(names) != 1 || names[0] != "capability.discover" {
+		t.Fatalf("expected only capability.discover without services, got %v", names)
 	}
 }
 
@@ -56,6 +63,34 @@ func TestInvokeMcpPresetsListsCuratedCatalog(t *testing.T) {
 func TestInvokeMcpInstallRequiresService(t *testing.T) {
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 	if _, err := e.invokeMcpInstallPreset(t.Context(), []byte(`{"presetId":"playwright"}`)); err == nil {
+		t.Fatal("expected MCP service unavailable")
+	}
+}
+
+// capability-self-bootstrap P3: the approval card must name what gets
+// installed and where its data goes, and the installer hook must fail closed
+// without the MCP service.
+func TestMcpInstallApprovalSummaryNamesPresetAndDataFlow(t *testing.T) {
+	s := mcpInstallApprovalSummary([]byte(`{"presetId":"fetch"}`))
+	for _, want := range []string{"Fetch", "uvx", "无需密钥", "第三方服务端"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("summary %q missing %q", s, want)
+		}
+	}
+	if mcpInstallApprovalSummary([]byte(`{"presetId":"no-such-preset"}`)) != "" {
+		t.Fatal("unknown preset falls back to the generic summary")
+	}
+	if mcpInstallApprovalSummary([]byte(`not json`)) != "" {
+		t.Fatal("unreadable args fall back to the generic summary")
+	}
+	if got := approvalRequiredSummary("mcp.install", []byte(`{"presetId":"fetch"}`)); !strings.Contains(got, "Fetch") {
+		t.Fatalf("approvalRequiredSummary must use the preset card: %q", got)
+	}
+}
+
+func TestInstallMcpPresetViaRuntimeRequiresService(t *testing.T) {
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	if _, err := e.installMcpPresetViaRuntime(t.Context(), "sess", []byte(`{"presetId":"playwright"}`)); err == nil {
 		t.Fatal("expected MCP service unavailable")
 	}
 }

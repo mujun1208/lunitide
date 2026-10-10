@@ -32,7 +32,7 @@ func repoGuidanceInjection(root string) string {
 	if root == "" || root == "." {
 		return ""
 	}
-	header := "\n\n[仓库约定] 以下来自工作区文件，叠在月汐身份之上，不替换身份，也不引入外部 Codex/云端线程。近处的 AGENTS.md 覆盖远处的同名约定。\n"
+	header := "\n\n[仓库约定] 以下来自工作区文件，叠在月汐身份之上，不替换身份，也不引入外部 Codex/云端线程。近处的 AGENTS.md 覆盖远处的同名约定；LUNITIDE.md 是本项目给月汐的工具与能力偏好声明（如常用 MCP、检索口径），与 AGENTS.md 并列生效。\n"
 	var b strings.Builder
 	b.WriteString(header)
 	budget := repoGuidanceMaxBytes - b.Len()
@@ -76,8 +76,10 @@ func repoGuidanceInjection(root string) string {
 }
 
 // readAgentsMarkdownChain walks git root → cwd and concatenates every
-// AGENTS.md (nearer last). Over budget, distant files drop first.
-// No git root means only the start directory — never ~ or the user home.
+// AGENTS.md plus every LUNITIDE.md (capability-self-bootstrap P4: the
+// project-level tool-preference declaration), nearer files last. Over
+// budget, distant sections drop first. No git root means only the start
+// directory — never ~ or the user home.
 func readAgentsMarkdownChain(start string) string {
 	dirs := agentsChainDirs(start)
 	if len(dirs) == 0 {
@@ -86,12 +88,12 @@ func readAgentsMarkdownChain(start string) string {
 	gitRoot := dirs[0]
 	var sections []string
 	for _, dir := range dirs {
-		body := readBoundedAgentsMarkdown(dir)
-		if body == "" {
-			continue
+		if body := readBoundedProjectMarkdown(dir, "AGENTS.md"); body != "" {
+			sections = append(sections, "AGENTS.md（"+agentsChainLabel(gitRoot, dir)+"）：\n"+body+"\n")
 		}
-		label := agentsChainLabel(gitRoot, dir)
-		sections = append(sections, "AGENTS.md（"+label+"）：\n"+body+"\n")
+		if body := readBoundedProjectMarkdown(dir, "LUNITIDE.md"); body != "" {
+			sections = append(sections, "LUNITIDE.md（"+agentsChainLabel(gitRoot, dir)+"）：\n"+body+"\n")
+		}
 	}
 	for len(sections) > 0 {
 		joined := strings.Join(sections, "")
@@ -204,10 +206,17 @@ func isGitRoot(dir string) bool {
 }
 
 func readBoundedAgentsMarkdown(root string) string {
+	return readBoundedProjectMarkdown(root, "AGENTS.md")
+}
+
+// readBoundedProjectMarkdown reads one bounded workspace convention file
+// (AGENTS.md or LUNITIDE.md). Symlinks and oversized files fail closed to
+// empty text.
+func readBoundedProjectMarkdown(root, name string) string {
 	if root == "" {
 		return ""
 	}
-	path := filepath.Join(root, "AGENTS.md")
+	path := filepath.Join(root, name)
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return ""

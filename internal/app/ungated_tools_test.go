@@ -12,7 +12,6 @@ import (
 // included, which is the one mode whose entire promise is a prompt.
 func TestUngatedEngineToolsRefusedInApprovalMode(t *testing.T) {
 	for _, tc := range []struct{ name, args string }{
-		{"mcp.install", `{"presetId":"p1"}`},
 		{"plugin.install", `{"id":"x"}`},
 		{"mcp.call", `{"tool":"send_email","arguments":{}}`},
 		{"mcp_01ARZ3NDEKTSV4RRFFQ69G5FAW_send_email", `{}`},
@@ -30,6 +29,25 @@ func TestUngatedEngineToolsRefusedInApprovalMode(t *testing.T) {
 		if !strings.HasPrefix(reason, "ok:false") {
 			t.Fatalf("%s refusal must read as a failed tool call: %q", tc.name, reason)
 		}
+	}
+}
+
+// capability-self-bootstrap P3: mcp.install left the ungated family — it now
+// flows through the tool runtime, whose mutation gate raises the standard
+// approval card instead of a flat refusal.
+func TestMcpInstallLeftTheUngatedFamily(t *testing.T) {
+	for _, mode := range []executionMode{executionModeApproval, executionModeAutoEdit, executionModeFullAccess} {
+		if _, deny := ungatedEngineToolDenied(mode, false, "mcp.install", json.RawMessage(`{"presetId":"fetch"}`)); deny {
+			t.Fatalf("mcp.install must route to the runtime gate, not the engine denial, in %q", mode)
+		}
+	}
+	// Voice turns get the approval card too: companion must not silently
+	// auto-approve adding a third-party server.
+	if companionToolPreapproved("mcp.install", false, true) || companionToolPreapproved("mcp.install", true, false) {
+		t.Fatal("mcp.install must never be companion-preapproved")
+	}
+	if !approvalProfileDangerous("mcp.install") {
+		t.Fatal("mcp.install must be dangerous-profiled")
 	}
 }
 

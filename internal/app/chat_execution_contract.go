@@ -59,6 +59,16 @@ func desktopExecutionInstruction() string {
 		"最终按本轮实际证据简短报告已做的事和未完成部分。打开不等于播放，写磁盘不等于窗口更新，关闭窗口不等于退出进程。失败后成功应采用最新成功证据；只有观察或命令回执时不能说任务完成。草稿并不代表用户已经看到结果。\n"
 }
 
+// capabilityExitInstruction is the missing-capability contract
+// (capability-self-bootstrap P1-3/P2-3). A turn that carries tools must not
+// dead-end on “我没有这个能力”: the model first checks the tools it does
+// have, then asks capability.discover across every capability source, and
+// when the gap is real it tells the user exactly what is missing and how
+// to add it instead of a bare refusal.
+func capabilityExitInstruction() string {
+	return "\n[能力缺口约定]\n任务所需能力不在当前工具清单时，不要直接回复“没有这个能力”：①先检查已挂载的工具（含 mcp_ 前缀的 MCP 工具，数量多时用 mcp.search 检索）；②再调用 capability.discover，用一句话描述需要的能力，它会横跨内置工具、已连接 MCP、已安装技能和可一键安装的 MCP 预置目录查找；③找到可安装预置时先征得用户同意再调用 mcp.install（手动审批模式下会弹出审批卡，用户批准后即安装；无人值守消息不会安装），安装后下一轮生效，本轮如实报告安装结果；④确实没有匹配就明确告诉用户缺什么能力，并说明补齐途径。不要虚构工具，也不要未做检查就宣布任务无法完成。\n"
+}
+
 type turnToolReceipt struct {
 	Name   string
 	Args   json.RawMessage

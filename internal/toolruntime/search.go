@@ -118,23 +118,15 @@ func (r *Runtime) searchWeb(ctx context.Context, query string, max int) (webSear
 	if cached, ok := r.webSearchCache.get(key, r.now()); ok {
 		return cached, nil
 	}
-	attempts := []struct {
-		url    string
-		source string
-	}{
-		{webfetch.SearchURL(query), "duckduckgo"},
-		{webfetch.BingCNSearchURL(query), "bing"},
-		{webfetch.BingSearchURL(query), "bing"},
-	}
 	var lastErr error
 	var lastHits []webfetch.SearchResult
 	var lastSrc, lastURL string
-	for _, attempt := range attempts {
+	for _, attempt := range webfetch.SearchAttempts(query) {
 		if err := ctx.Err(); err != nil {
 			return webSearchResponse{}, err
 		}
 		c, cancel := context.WithTimeout(ctx, searchAttemptTimeout)
-		page, err := r.fetchWeb(c, attempt.url)
+		page, err := r.fetchWeb(c, attempt.URL)
 		cancel()
 		if err := ctx.Err(); err != nil {
 			return webSearchResponse{}, err
@@ -144,26 +136,21 @@ func (r *Runtime) searchWeb(ctx context.Context, query string, max int) (webSear
 			continue
 		}
 		if page.Status < 200 || page.Status >= 300 {
-			lastErr = fmt.Errorf("web search %s returned HTTP %d; no search results confirmed", attempt.source, page.Status)
+			lastErr = fmt.Errorf("web search %s returned HTTP %d; no search results confirmed", attempt.Source, page.Status)
 			continue
 		}
-		if searchChallengePage(string(page.Body)) {
-			lastErr = fmt.Errorf("web search %s requires browser verification; no search results confirmed", attempt.source)
+		if webfetch.ChallengePage(string(page.Body)) {
+			lastErr = fmt.Errorf("web search %s requires browser verification; no search results confirmed", attempt.Source)
 			continue
 		}
-		var hits []webfetch.SearchResult
-		if attempt.source == "duckduckgo" {
-			hits = webfetch.ParseSearchResults(string(page.Body), max)
-		} else {
-			hits = webfetch.ParseBingResults(string(page.Body), max)
-		}
-		pageURL := attempt.url
+		hits := webfetch.ParseSearchSource(attempt.Source, string(page.Body), max)
+		pageURL := attempt.URL
 		if page.FinalURL != "" {
 			pageURL = page.FinalURL
 		}
-		lastHits, lastSrc, lastURL = hits, attempt.source, pageURL
+		lastHits, lastSrc, lastURL = hits, attempt.Source, pageURL
 		if len(hits) > 0 {
-			response := boundedWebSearchResponse(hits, attempt.source, pageURL, r.now())
+			response := boundedWebSearchResponse(hits, attempt.Source, pageURL, r.now())
 			r.webSearchCache.put(key, response, r.now())
 			return response, nil
 		}
