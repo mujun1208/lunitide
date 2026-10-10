@@ -178,9 +178,15 @@ it('frames the open history row and leaves the others plain', async () => {
   const other = screen.getByRole('button', { name: '创建技能' })
   expect(other).not.toHaveAttribute('aria-current')
   expect(other.closest('.conversation-row')).not.toHaveClass('is-current')
+  // The stamp is aria-hidden decoration: the button name stays the bare title
+  // and every row shows the session's updatedAt (2027 is not this year, so the
+  // stamp is the date itself).
+  expect(current.querySelector('.conversation-time')?.textContent).toBe('2027-01-01')
+  expect(other.querySelector('.conversation-time')?.textContent).toBe('2027-01-01')
   const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
   expect(css).toContain('.conversation-row.is-current{margin:1px 6px;border:1px solid rgba(168,198,255,.62);border-radius:8px;background:rgba(92,132,196,.34)}')
   expect(css).toContain('html[data-theme="light"] .conversation-row.is-current{border-color:rgba(0,110,170,.55);background:rgba(0,120,186,.16)}')
+  expect(css).toContain('.conversation-open .conversation-time{flex:none;color:#7f8fa6;font-family:var(--mono);font-size:10px;letter-spacing:.02em}')
 })
 
 it('TestMediaCenterOfficeNavigation: keeps Media Center in Office even when optional office items are hidden', () => {

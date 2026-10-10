@@ -456,6 +456,10 @@ it('restores persist-failed draft without auto-sending resume',async()=>{
  const start=vi.fn()
  render(<SessionPage project={project} bridge={sessionBridge} onBack={vi.fn()} personal initialSession={session} providers={providers} messages={{list:vi.fn().mockResolvedValue(page([userMessage])),append:vi.fn()} as MessageBridge} chat={{start,approve:vi.fn(),dispose:vi.fn()}}/>)
  expect(await screen.findByText('帮我写个文件')).toBeInTheDocument()
+ // 每条消息的 .who 行携带完整时间戳，身份标签包在 .who-label 里（个人页 CSS 只藏标签）。
+ const who=document.querySelector('.msg .who') as HTMLElement
+ expect(who.querySelector('.who-label')?.textContent).toContain('USER')
+ expect(who.textContent).toMatch(/2025-01-01 \d{2}:00:00/)
  expect(await screen.findByRole('button',{name:'只重试写入'})).toBeInTheDocument()
  expect(screen.queryByRole('button',{name:'继续上次'})).toBeNull()
  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,80))})
