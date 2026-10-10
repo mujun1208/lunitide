@@ -237,6 +237,40 @@ func TestParseBingResultsExtractsOrganicLinks(t *testing.T) {
 	}
 }
 
+// degradedBingPage mirrors the keyless-UA cn.bing.com markup: each b_algo
+// block leads with a b_tpcn attribution pill whose anchor text glues the site
+// domain to the cite URL, and the caption embeds a b_algoReadMore anchor.
+const degradedBingPage = `<ol id="b_results">
+<li class="b_algo" data-id iid=SERP.5317><div class="b_tpcn"><a class="tilk" aria-label="baidu.com" href="https://aiqicha.baidu.com/company_detail_62113756741329"><div class="tptxt"><div class="tptt">baidu.com</div><div class="tpmeta"><div class="b_attribution"><cite>https://aiqicha.baidu.com</cite></div></div></div></a></div><h2><a href="https://aiqicha.baidu.com/company_detail_62113756741329">中航材利顿航空科技股份有限公司 - 爱企查</a></h2><div class="b_caption"><p class="b_lineclamp2">3 天之前&ensp;&#0183;&ensp;中航材利顿航空科技股份有限公司是一家高新技术企业。<a class="b_algoReadMore" href="https://aiqicha.baidu.com/company_detail_62113756741329">阅读更多</a></p></div></li>
+<li class="b_algo" data-id iid=SERP.5318><div class="b_tpcn"><a class="tilk" href="https://baike.baidu.com/item/x"><div class="tptxt"><div class="tptt">baike.baidu.com</div><div class="tpmeta"><cite>https://baike.baidu.com › item › x</cite></div></div></a></div><h2><a href="https://baike.baidu.com/item/x">中航材利顿航空科技有限公司_百度百科</a></h2><div class="b_caption"><p>成立于2005年。</p></div></li>
+</ol>`
+
+func TestParseBingResultsPrefersHeadlineOverAttributionPill(t *testing.T) {
+	t.Parallel()
+	results := ParseBingResults(degradedBingPage, 10)
+	if len(results) != 2 {
+		t.Fatalf("results=%d %+v", len(results), results)
+	}
+	first := results[0]
+	if first.Title != "中航材利顿航空科技股份有限公司 - 爱企查" {
+		t.Fatalf("title=%q", first.Title)
+	}
+	if first.URL != "https://aiqicha.baidu.com/company_detail_62113756741329" {
+		t.Fatalf("url=%q", first.URL)
+	}
+	// b_algoReadMore must not be mistaken for the next result block: the
+	// snippet keeps the text up to </p> instead of being cut empty.
+	if !strings.Contains(first.Snippet, "3 天之前") || !strings.Contains(first.Snippet, "高新技术企业") {
+		t.Fatalf("snippet=%q", first.Snippet)
+	}
+	if strings.Contains(first.Snippet, "&ensp;") || strings.Contains(first.Snippet, "&#0183;") {
+		t.Fatalf("undecoded entities in snippet=%q", first.Snippet)
+	}
+	if results[1].Title != "中航材利顿航空科技有限公司_百度百科" {
+		t.Fatalf("second title=%q", results[1].Title)
+	}
+}
+
 func TestRenderSearchHTMLEscapesAndLists(t *testing.T) {
 	t.Parallel()
 	out := RenderSearchHTML(`jay <script>`, []SearchResult{{Title: `A&B`, URL: "https://ex.test/?q=1", Snippet: "<b>x</b>"}})

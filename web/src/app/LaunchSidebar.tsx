@@ -24,6 +24,18 @@ function officePage(page: Page): boolean {
   return page === 'office' || page === 'automation' || page === 'media' || page === 'people' || page === 'meetings' || page === 'mro' || page === 'productHub'
 }
 
+/** 侧边栏对话时间戳：今天只显示 HH:mm，今年显示 MM-DD HH:mm，更早只显示日期。 */
+function chatStamp(iso: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const p = (n: number) => String(n).padStart(2, '0')
+  const now = new Date()
+  if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) return `${p(d.getHours())}:${p(d.getMinutes())}`
+  if (d.getFullYear() === now.getFullYear()) return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
 export function LaunchSidebar({
   open, page, setPage: navigate, projects, sessions, messages, onSelect, onNew, theme, language, refreshKey, localChats, deletedChatIds, draftSessionIds, visibleDraftId, onToggleTheme, onToggleLanguage, collapsed, onUpdated, onDeleted, onOpenPeople, mroEnabled, topSlot, replaceMainNav, onOpenMobileCompanion,
 }: {
@@ -268,12 +280,14 @@ export function LaunchSidebar({
                   <div id="conversation-list" className="conversation-list">
                     {recent.length ? recent.map(item => {
                       const current = item.session.id === visibleDraftId
+                      const stamp = chatStamp(item.session.updatedAt)
                       return (
                       <div className={`conversation-row ${item.session.pinned ? 'is-pinned' : ''} ${current ? 'is-current' : ''}`} key={item.session.id}>
                         <button className="conversation-open" onClick={() => onSelect(item)} title={localizedSessionTitle(item.session.title, zh)} aria-current={current ? 'true' : undefined} aria-busy={item.pending || liveSessionIds.includes(item.session.id) || undefined}>
                           {(item.pending || liveSessionIds.includes(item.session.id)) ? <span className="session-pending" aria-hidden="true" /> : null}
-                          {item.session.pinned ? <span aria-hidden="true">⌃</span> : null}
-                          {localizedSessionTitle(item.session.title, zh)}
+                          {item.session.pinned ? <span className="pin-mark" aria-hidden="true">⌃</span> : null}
+                          <span className="conversation-title">{localizedSessionTitle(item.session.title, zh)}</span>
+                          {stamp ? <span className="conversation-time" aria-hidden="true">{stamp}</span> : null}
                         </button>
                         <div className="conversation-actions">
                           <button className="conversation-more" aria-label={`${zh ? '更多操作' : 'More actions'} ${localizedSessionTitle(item.session.title, zh)}`} aria-haspopup="menu" aria-expanded={menuId === item.session.id} onClick={e => { e.stopPropagation(); setMenuId(id => id === item.session.id ? '' : item.session.id); setActionError('') }}>⋯</button>

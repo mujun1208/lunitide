@@ -195,6 +195,9 @@ var namedEntities = map[string]string{
 	"ndash": "–", "lsquo": "‘", "rsquo": "’", "ldquo": "“", "rdquo": "”",
 	"laquo": "«", "raquo": "»", "times": "×", "middot": "·", "bull": "•",
 	"deg": "°", "plusmn": "±", "micro": "µ", "para": "¶", "sect": "§",
+	// Bing snippets glue timestamps with &ensp; separators; leave them out and
+	// the entity text leaks verbatim into tool output.
+	"ensp": "\u2002", "emsp": "\u2003", "thinsp": "\u2009",
 }
 
 func decodeEntity(entity string) (string, bool) {

@@ -105,12 +105,12 @@ func ParseBingResults(page string, max int) []SearchResult {
 	var results []SearchResult
 	rest := page
 	for len(results) < max {
-		idx := strings.Index(rest, "b_algo")
+		idx := indexBingBlock(rest)
 		if idx < 0 {
 			break
 		}
 		rest = rest[idx:]
-		next := strings.Index(rest[1:], "b_algo")
+		next := indexBingBlock(rest[1:])
 		block := rest
 		if next >= 0 {
 			block = rest[:1+next]
@@ -118,7 +118,7 @@ func ParseBingResults(page string, max int) []SearchResult {
 		} else {
 			rest = ""
 		}
-		href, title := firstHTTPAnchor(block)
+		href, title := bingTitleAnchor(block)
 		if href == "" || isBingNavURL(href) {
 			continue
 		}
@@ -129,6 +129,44 @@ func ParseBingResults(page string, max int) []SearchResult {
 		})
 	}
 	return results
+}
+
+// indexBingBlock returns the offset of the next b_algo result token in s, or
+// -1. A bare substring search would also hit longer class names such as
+// "b_algoReadMore" (the read-more link inside a result's own caption), which
+// would cut the result's block at its snippet and drop the text after it.
+func indexBingBlock(s string) int {
+	for off := 0; off < len(s); {
+		idx := strings.Index(s[off:], "b_algo")
+		if idx < 0 {
+			return -1
+		}
+		at := off + idx
+		if at+6 >= len(s) || !isWordByte(s[at+6]) {
+			return at
+		}
+		off = at + 6
+	}
+	return -1
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+// bingTitleAnchor returns the headline anchor of one result block. Degraded
+// keyless-UA markups lead each block with a b_tpcn attribution pill whose
+// anchor text glues the site domain to the cite URL
+// ("baidu.comhttps://aiqicha.baidu.com"); the real headline is the <h2>
+// anchor. The pill is not a title, so prefer <h2> and only fall back to the
+// first usable anchor of the block.
+func bingTitleAnchor(block string) (href, title string) {
+	if h := strings.Index(strings.ToLower(block), "<h2"); h >= 0 {
+		if href, title = firstHTTPAnchor(block[h:]); href != "" {
+			return href, title
+		}
+	}
+	return firstHTTPAnchor(block)
 }
 
 // SearchAttempt is one keyless HTML search endpoint to try, in fallback
