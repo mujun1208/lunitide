@@ -476,7 +476,9 @@ func applyLaneOverrides(lane ChatLane, in LaneInput, route TaskRoute, overlay Co
 		}
 	}
 	c := buildLaneContract(lane, route, overlay)
-	if (detectTaskRoute(goal) == RouteR1 || looksLikeCurrentLookupTurn(goal)) &&
+	// The semantic/flash classifier's R1 conclusion must reach the lane rescue:
+	// keyword detectors alone miss bare entities and short follow-ups.
+	if (route == RouteR1 || detectTaskRoute(goal) == RouteR1 || looksLikeCurrentLookupTurn(goal)) &&
 		lane != LaneL0 && lane != LaneL2 && lane != LaneL2Ask && lane != LaneL4 {
 		c.AllowWebSearch = true
 		if c.MaxMainToolSteps < 4 {

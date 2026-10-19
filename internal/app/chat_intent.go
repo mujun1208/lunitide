@@ -418,7 +418,124 @@ func looksLikeCurrentLookupTurn(text string) bool {
 			return true
 		}
 	}
+	return bareTopicLookup(t)
+}
+
+// bareTopicLookup reports a bare entity or topic phrase that carries lookup
+// intent without any lookup verb: "北京支点互动科技有限公司" typed alone, or
+// "量子计算是什么". Verb-only routing misses these and the turn strands on a
+// lane whose tool list has no web search and whose budget is a single step.
+func bareTopicLookup(t string) bool {
+	t = strings.TrimSpace(strings.Trim(strings.TrimSpace(t), "？?！!。"))
+	if t == "" || utf8.RuneCountInString(t) > 40 {
+		return false
+	}
+	// A single phrase only: separators mean a composed task, not a bare topic.
+	if strings.ContainsAny(t, "，,；;\n") {
+		return false
+	}
+	for _, banned := range []string{"http", "www.", ".com", ".net", ".org", "/", "\\", "@"} {
+		if strings.Contains(t, banned) {
+			return false
+		}
+	}
+	// isShortIdleGreeting must NOT be called here: it reaches back into
+	// companionWantsTools → looksLikeCurrentLookupTurn and would recurse.
+	// Greetings never carry entity suffixes or question words anyway.
+	if looksLikeResume(t) ||
+		wantsOfficeGen(t) || looksLikeReportTask(t) || laneLooksLikeProse(t) || mediaGenerationKind(t) != "" {
+		return false
+	}
+	// Deictic pronouns make the phrase reference the conversation ("我们公司",
+	// "这是什么"), so it is chat or a follow-up, not a lookup subject.
+	for _, r := range t {
+		switch r {
+		case '我', '你', '您', '他', '她', '它', '这', '那':
+			return false
+		}
+	}
+	for _, verb := range []string{
+		"打开", "启动", "关闭", "退出", "播放", "暂停", "生成", "创建", "新建", "制作", "翻译", "总结",
+		"整理", "安装", "设置", "配置", "发送", "保存", "运行", "截图", "打印", "朗读", "输入", "填写",
+		"上传", "下载", "删除", "压缩", "解压", "改名", "移动", "复制", "介绍", "推荐",
+		"写一", "写个", "写份", "做一", "做个", "画一", "画个",
+		"帮我", "帮忙", "请你", "请给", "请帮", "给我", "麻烦", "我要", "我想", "替我", "为我",
+	} {
+		if strings.HasPrefix(t, verb) {
+			return false
+		}
+	}
+	for _, verb := range []string{
+		"打开", "关闭", "退出", "播放", "暂停", "生成", "创建", "新建", "制作", "翻译", "总结",
+		"整理", "安装", "配置", "发送", "保存", "截图", "打印", "朗读", "上传", "下载", "删除",
+		"压缩", "解压", "自我介绍", "个人简介",
+	} {
+		if strings.Contains(t, verb) {
+			return false
+		}
+	}
+	// Entity suffixes are strong signals; generic ones (中心/平台/品牌) only
+	// count for longer phrases, where they are real organization names.
+	for _, suffix := range []string{
+		"公司", "集团", "有限", "股份", "银行", "证券", "基金", "保险", "大学", "学院",
+		"学校", "医院", "研究所", "研究院", "设计院", "协会", "事务所", "工作室", "出版社", "报社",
+		"电视台", "官网", "网站", "酒店", "餐厅", "机场", "车站",
+	} {
+		if strings.Contains(t, suffix) {
+			return true
+		}
+	}
+	for _, suffix := range []string{"中心", "平台", "品牌"} {
+		if strings.Contains(t, suffix) && utf8.RuneCountInString(t) >= 8 {
+			return true
+		}
+	}
+	lower := strings.ToLower(t)
+	for _, q := range []string{"是什么", "什么意思", "是谁", "简介", "what is", "who is"} {
+		if strings.Contains(t, q) || strings.Contains(lower, q) {
+			return true
+		}
+	}
 	return false
+}
+
+// autoLookupQuery picks the query for an injected web search. A follow-up
+// such as "查询啊" is a command, not a subject: the entity lives in an
+// earlier user message, or in the discovery call the model already made.
+func autoLookupQuery(goal string, messages []llmadapter.Message) string {
+	goal = strings.TrimSpace(goal)
+	if utf8.RuneCountInString(goal) >= 5 {
+		return goal
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != llmadapter.RoleUser {
+			continue
+		}
+		text := strings.TrimSpace(messages[i].Content)
+		if text == "" || strings.EqualFold(text, goal) {
+			continue
+		}
+		if looksLikeCurrentLookupTurn(text) {
+			return text
+		}
+	}
+	for _, receipt := range currentTurnReceipts(messages) {
+		if receipt.Name != "capability.discover" && receipt.Name != "mcp.search" {
+			continue
+		}
+		var args struct {
+			Need  string `json:"need"`
+			Query string `json:"query"`
+		}
+		_ = json.Unmarshal(receipt.Args, &args)
+		if q := strings.TrimSpace(args.Need); q != "" {
+			return q
+		}
+		if q := strings.TrimSpace(args.Query); q != "" {
+			return q
+		}
+	}
+	return goal
 }
 
 func fallbackWebSearchArgs(goal string) json.RawMessage {

@@ -1111,6 +1111,11 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 					route, allow = flashRoute, flashAllow
 				}
 			}
+			// A lookup-intent follow-up misread as R2/R3 loses web.search to the
+			// route whitelist and the turn ends with no search channel at all.
+			if lookupFollowUpOverridesRoute(route, laneIn.Goal, routingApps) {
+				route, allow = RouteR1, routeAllow(RouteR1, ccOn)
+			}
 			req.Tools = applyTaskRoute(req.Tools, route, allow)
 			state.taskRoute = route
 			state.taskAllow = allow

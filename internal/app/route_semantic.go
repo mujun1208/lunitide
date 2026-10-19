@@ -232,6 +232,21 @@ func classifyTaskRouteApps(goal string, companion, ccEnabled bool, apps []string
 	return route, allow
 }
 
+// lookupFollowUpOverridesRoute keeps a lookup-intent turn off the desktop/app
+// routes when the flash classifier misreads a search follow-up ("查询啊") as
+// app work. R2/R3 tool whitelists drop web.search, so the misroute leaves the
+// turn without any usable search channel. A real named-app route is never
+// suppressed.
+func lookupFollowUpOverridesRoute(route TaskRoute, goal string, apps []string) bool {
+	if route != RouteR2 && route != RouteR3 {
+		return false
+	}
+	if !looksLikeCurrentLookupTurn(goal) {
+		return false
+	}
+	return detectAppActRoute(goal, apps) != RouteR2
+}
+
 // sendIntentHints mark "deliver a message to someone" so im.send stays
 // available next to the desktop tools that would type it into an app.
 var sendIntentHints = []string{

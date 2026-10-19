@@ -743,8 +743,9 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						}
 						return nil
 					}
-					if !turnAlreadySettled && !autoLookupDone && !turnAttemptedAction(req.Messages, "lookup") && looksLikeCurrentLookupTurn(turn.Goal) {
-						if inventoryLookupBlocksPublicWeb(turn.Goal) && toolDefinitionsHave(req.Tools, "mcp.search") {
+					if !turnAlreadySettled && !autoLookupDone && !turnAttemptedWebLookup(req.Messages) &&
+						(looksLikeCurrentLookupTurn(turn.Goal) || discoveryAskedForWebLookup(req.Messages)) {
+						if inventoryLookupBlocksPublicWeb(turn.Goal) && toolDefinitionsHave(req.Tools, "mcp.search") && !turnAttemptedAction(req.Messages, "lookup") {
 							if searchArgs := fallbackMcpSearchArgs(turn.Goal); len(searchArgs) > 0 {
 								result.Message.ToolCalls = []llmadapter.ToolCall{{
 									ID:        "auto-" + ulid.Make().String(),
@@ -753,14 +754,30 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 								}}
 								autoLookupDone = true
 							}
-						} else if laneAllowsWebSearch(state.lane) && toolDefinitionsHave(req.Tools, "web.search") {
-							if searchArgs := fallbackWebSearchArgs(turn.Goal); len(searchArgs) > 0 {
-								result.Message.ToolCalls = []llmadapter.ToolCall{{
-									ID:        "auto-" + ulid.Make().String(),
-									Name:      "web.search",
-									Arguments: searchArgs,
-								}}
-								autoLookupDone = true
+						} else {
+							if !toolDefinitionsHave(req.Tools, "web.search") && toolDefinitionsHave(state.fullTools, "web.search") {
+								// A lane or route stripped the web family while the turn
+								// still needs it. Re-attach from the full catalog so the
+								// injected search can actually run, and grant back the
+								// steps the narrow lane had removed.
+								req.Tools = appendWebLookupTools(req.Tools, state.fullTools)
+								state.lane.AllowWebSearch = true
+								if state.lane.MaxMainToolSteps < 4 {
+									state.lane.MaxMainToolSteps = 4
+								}
+								if toolLoopLimit < step+2 {
+									toolLoopLimit = min(step+2, maxToolLoopStepsHard)
+								}
+							}
+							if laneAllowsWebSearch(state.lane) && toolDefinitionsHave(req.Tools, "web.search") {
+								if searchArgs := fallbackWebSearchArgs(autoLookupQuery(turn.Goal, req.Messages)); len(searchArgs) > 0 {
+									result.Message.ToolCalls = []llmadapter.ToolCall{{
+										ID:        "auto-" + ulid.Make().String(),
+										Name:      "web.search",
+										Arguments: searchArgs,
+									}}
+									autoLookupDone = true
+								}
 							}
 						}
 					}

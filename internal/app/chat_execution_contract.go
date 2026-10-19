@@ -133,6 +133,70 @@ func desktopMutation(name string, args json.RawMessage) bool {
 	return isDesktopControlTool(name) && !liveDesktopObservation(name, args)
 }
 
+// turnAttemptedWebLookup is turnAttemptedAction("lookup") restricted to the
+// built-in web family. Catalog discovery (mcp.search, capability.discover)
+// does not count: a discovery call failing to surface a usable search channel
+// is exactly the situation the auto-lookup rescue exists to fix.
+func turnAttemptedWebLookup(messages []llmadapter.Message) bool {
+	for _, receipt := range currentTurnReceipts(messages) {
+		if receipt.Name == "web.search" || receipt.Name == "web.fetch" || receipt.Name == "weather.get" {
+			return true
+		}
+	}
+	return false
+}
+
+// discoveryAskedForWebLookup reports that the model already asked a discovery
+// surface for web-lookup capability: capability.discover need text or an
+// mcp.search query mentioning search/company/news. Goals without lookup
+// keywords ("查询啊" after a bare entity) otherwise leave the turn stranded
+// with no signal for the rescue ladder.
+func discoveryAskedForWebLookup(messages []llmadapter.Message) bool {
+	for _, receipt := range currentTurnReceipts(messages) {
+		if receipt.Name != "capability.discover" && receipt.Name != "mcp.search" {
+			continue
+		}
+		var args struct {
+			Need  string `json:"need"`
+			Query string `json:"query"`
+		}
+		_ = json.Unmarshal(receipt.Args, &args)
+		text := strings.TrimSpace(args.Need + " " + args.Query)
+		if text == "" {
+			continue
+		}
+		lower := strings.ToLower(text)
+		for _, needle := range []string{
+			"搜索", "查", "联网", "检索", "公司", "企业", "新闻", "资讯", "资料", "网页", "信息",
+			"web", "search", "company", "news", "info", "look up", "browse",
+		} {
+			if strings.Contains(text, needle) || strings.Contains(lower, needle) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// appendWebLookupTools re-attaches the built-in web lookup family that a lane
+// or route filter removed, sourced from the full turn catalog.
+func appendWebLookupTools(defs, full []llmadapter.ToolDefinition) []llmadapter.ToolDefinition {
+	present := make(map[string]bool, len(defs))
+	for _, d := range defs {
+		present[d.Name] = true
+	}
+	for _, d := range full {
+		if present[d.Name] {
+			continue
+		}
+		switch d.Name {
+		case "web.search", "web.fetch", "weather.get":
+			defs = append(defs, d)
+		}
+	}
+	return defs
+}
+
 func recordDesktopMutationFailure(failed map[string]int, name string, args json.RawMessage, summary string) {
 	if failed == nil || !desktopMutation(name, args) {
 		return

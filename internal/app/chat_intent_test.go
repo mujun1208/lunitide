@@ -7,6 +7,145 @@ import (
 	"github.com/lunitide/lunitide/internal/llmadapter"
 )
 
+func TestBareEntityTopicLookupIntent(t *testing.T) {
+	for _, goal := range []string{
+		"北京支点互动科技有限公司",
+		"中航材利顿航空科技股份有限公司",
+		"量子计算是什么",
+		"国家超级计算天津中心",
+		"emo什么意思",
+	} {
+		if !looksLikeCurrentLookupTurn(goal) {
+			t.Fatalf("bare entity must route to lookup: %s", goal)
+		}
+		if len(fallbackWebSearchArgs(goal)) == 0 {
+			t.Fatalf("bare entity must have a fallback web query: %s", goal)
+		}
+	}
+	for _, goal := range []string{
+		"打开北京支点互动科技有限公司官网",
+		"写一篇关于北京支点互动科技有限公司的文章",
+		"介绍一下你自己",
+		"自我介绍",
+		"个人简介",
+		"今晚月色怎么样",
+		"在吗",
+		"我们公司",
+	} {
+		if looksLikeCurrentLookupTurn(goal) {
+			t.Fatalf("non-lookup goal classified as lookup: %s", goal)
+		}
+	}
+}
+
+func TestLookupFollowUpOverridesRoute(t *testing.T) {
+	apps := []string{"微信", "飞书", "浏览器"}
+	if !lookupFollowUpOverridesRoute(RouteR2, "查询啊", apps) {
+		t.Fatal("lookup follow-up misread as R2 must be suppressed to R1")
+	}
+	if !lookupFollowUpOverridesRoute(RouteR3, "查询啊", apps) {
+		t.Fatal("lookup follow-up misread as R3 must be suppressed to R1")
+	}
+	if lookupFollowUpOverridesRoute(RouteR1, "查询啊", apps) {
+		t.Fatal("R1 needs no suppression")
+	}
+	if lookupFollowUpOverridesRoute(RouteR2, "打开微信", apps) {
+		t.Fatal("desktop app goal must keep R2")
+	}
+	if lookupFollowUpOverridesRoute(RouteR2, "在微信里查一下天气", apps) {
+		t.Fatal("named-app lookup goal must keep R2")
+	}
+}
+
+func TestLaneRescueForBareEntityAndSemanticR1(t *testing.T) {
+	// A bare company name carries no lookup verb; the bare-entity intent
+	// must still open the lane rescue (web search + a real step budget).
+	laneIn := LaneInput{Goal: "北京支点互动科技有限公司"}
+	lane := classifyChatLane(laneIn)
+	_, contract := applyLaneOverrides(lane, laneIn, RouteUnspecified, CouncilOverlay{})
+	if !contract.AllowWebSearch || contract.MaxMainToolSteps < 4 {
+		t.Fatalf("bare company name must get web search + >=4 steps: %+v", contract)
+	}
+	defs := []llmadapter.ToolDefinition{
+		{Name: "web.search"}, {Name: "web.fetch"}, {Name: "workspace.read"}, {Name: "user.ask"},
+	}
+	kept := applyLaneTools(defs, contract)
+	if !toolDefinitionsHave(kept, "web.search") {
+		t.Fatalf("rescued L1 surface must keep web.search: %v", kept)
+	}
+	// The semantic (flash) classifier's R1 conclusion must reach the lane
+	// rescue even when keyword detectors see nothing.
+	laneIn = LaneInput{Goal: "今天有什么大事"}
+	lane = classifyChatLane(laneIn)
+	_, contract = applyLaneOverrides(lane, laneIn, RouteR1, CouncilOverlay{})
+	if !contract.AllowWebSearch || contract.MaxMainToolSteps < 4 {
+		t.Fatalf("semantic R1 must feed the lane rescue: %+v", contract)
+	}
+}
+
+func TestWebLookupRescueContract(t *testing.T) {
+	// Replay of the 2026-10-19 failure: catalog discovery calls disarmed the
+	// auto-lookup ladder because mcp.search counted as an attempted lookup.
+	msgs := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "查询啊"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
+			{ID: "c1", Name: "mcp.search", Arguments: []byte(`{"query":"搜索公司信息"}`)},
+			{ID: "c2", Name: "capability.discover", Arguments: []byte(`{"need":"web search for company info"}`)},
+		}},
+		{Role: llmadapter.RoleTool, ToolCallID: "c1", Content: "无匹配"},
+		{Role: llmadapter.RoleTool, ToolCallID: "c2", Content: "内置工具；本轮未挂载"},
+	}
+	if turnAttemptedWebLookup(msgs) {
+		t.Fatal("discovery calls must not disarm the web lookup rescue")
+	}
+	if !discoveryAskedForWebLookup(msgs) {
+		t.Fatal("capability.discover/mcp.search lookup intent must arm the rescue")
+	}
+	if !turnAttemptedAction(msgs, "lookup") {
+		t.Fatal("legacy lookup tracking still sees the discovery call (regression guard)")
+	}
+	msgs = append(msgs,
+		llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "c3", Name: "web.search", Arguments: []byte(`{"query":"x"}`)}}},
+		llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: "c3", Content: "ok"},
+	)
+	if !turnAttemptedWebLookup(msgs) {
+		t.Fatal("a real web.search receipt must disarm the rescue")
+	}
+	full := []llmadapter.ToolDefinition{
+		{Name: "web.search"}, {Name: "web.fetch"}, {Name: "weather.get"}, {Name: "todo.write"},
+	}
+	narrow := []llmadapter.ToolDefinition{{Name: "user.ask"}}
+	got := appendWebLookupTools(narrow, full)
+	if !toolDefinitionsHave(got, "web.search") || !toolDefinitionsHave(got, "web.fetch") || !toolDefinitionsHave(got, "weather.get") {
+		t.Fatalf("appendWebLookupTools must attach the web family: %v", got)
+	}
+	if toolDefinitionsHave(got, "todo.write") {
+		t.Fatalf("appendWebLookupTools must not leak unrelated tools: %v", got)
+	}
+}
+
+func TestAutoLookupQueryPrefersConversationSubject(t *testing.T) {
+	msgs := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "北京支点互动科技有限公司"},
+		{Role: llmadapter.RoleAssistant, Content: "找到可用的搜索工具了，现在实际查一下这家公司："},
+		{Role: llmadapter.RoleUser, Content: "查询啊"},
+	}
+	if got := autoLookupQuery("查询啊", msgs); got != "北京支点互动科技有限公司" {
+		t.Fatalf("follow-up command must reuse the earlier subject: %q", got)
+	}
+	if got := autoLookupQuery("北京支点互动科技有限公司", msgs); got != "北京支点互动科技有限公司" {
+		t.Fatalf("full subject goal must stay the query: %q", got)
+	}
+	discovery := []llmadapter.Message{
+		{Role: llmadapter.RoleUser, Content: "查询啊"},
+		{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "c1", Name: "capability.discover", Arguments: []byte(`{"need":"搜索北京支点互动科技有限公司的信息"}`)}}},
+		{Role: llmadapter.RoleTool, ToolCallID: "c1", Content: "未挂载"},
+	}
+	if got := autoLookupQuery("查询啊", discovery); got != "搜索北京支点互动科技有限公司的信息" {
+		t.Fatalf("discovery need text must back the query: %q", got)
+	}
+}
+
 func TestParseDesktopTypeArgsFromGoal(t *testing.T) {
 	after, text, ok := parseDesktopTypeArgsFromGoal("在身份证号码后面写204040")
 	if !ok || after != "身份证号码" || text != "204040" {
