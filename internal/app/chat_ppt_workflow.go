@@ -70,7 +70,8 @@ func pptContentInHand(text string) bool {
 }
 
 func pptGoesStraightToFile(goal string) bool {
-	return lookupOptedOut(goal) || referenceOnlyOfficeTurn(goal) || pptContentInHand(goal)
+	return lookupOptedOut(goal) || referenceOnlyOfficeTurn(goal) || pptContentInHand(goal) ||
+		hasTurnMaterials(goal, false, false)
 }
 
 func pptStraightInstruction(goal string) string {

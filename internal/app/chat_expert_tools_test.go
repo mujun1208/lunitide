@@ -227,7 +227,7 @@ func TestDeliberateExpertOffersSpecialistTools(t *testing.T) {
 	e.SetToolRuntime(tools)
 	e.skills = &skillCatalogStub{items: []skill.Skill{catalogTestSkill("demo", "unused", `{}`)}}
 	adapter := &deliberateToolsAdapter{}
-	op := e.deliberateExpert(context.Background(), adapter, nil, "m", councilExpert{ID: "ppt", Name: "PPT专家", Body: "做演示"}, "做一份介绍", "", "", expertCouncilConfig{Mode: executionModeFullAccess, SessionID: subTestSession, Tools: true, MaxSteps: councilExpertMaxSteps, Lane: LaneL4})
+	op := e.deliberateExpert(context.Background(), adapter, nil, "m", councilExpert{ID: "ppt", Name: "PPT专家", Body: "做演示"}, "做一份介绍", "", "", expertCouncilConfig{Mode: executionModeFullAccess, SessionID: subTestSession, Tools: true, MaxSteps: councilExpertMaxSteps, Lane: LaneAgent})
 	if op.Text != "独立意见" {
 		t.Fatalf("opinion = %+v adapter=%+v", op, adapter)
 	}
@@ -252,7 +252,7 @@ func TestDeliberateExpertRecordsCouncilPurpose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	op := e.deliberateExpert(context.Background(), a, nil, "m", councilExpert{ID: "ppt", Name: "PPT专家", Body: "做演示"}, "做一份介绍", "", "", expertCouncilConfig{Mode: executionModeFullAccess, SessionID: subTestSession, Tools: true, MaxSteps: councilExpertMaxSteps, Lane: LaneL4})
+	op := e.deliberateExpert(context.Background(), a, nil, "m", councilExpert{ID: "ppt", Name: "PPT专家", Body: "做演示"}, "做一份介绍", "", "", expertCouncilConfig{Mode: executionModeFullAccess, SessionID: subTestSession, Tools: true, MaxSteps: councilExpertMaxSteps, Lane: LaneAgent})
 	if op.Text != "独立意见" {
 		t.Fatalf("opinion = %+v", op)
 	}
@@ -285,7 +285,7 @@ func (a *deliberateToolsAdapter) Discover(context.Context, []byte) (llmadapter.D
 }
 
 func TestCouncilChairInstructsTools(t *testing.T) {
-	chair := councilChairInstruction(formatCouncilBrief("x", nil), false)
+	chair := councilChairInstruction(formatCouncilBrief("x", nil), false, "x")
 	if !strings.Contains(chair, "## 综合结论") {
 		t.Fatalf("chair = %q", chair)
 	}

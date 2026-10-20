@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lunitide/lunitide/internal/bridge"
 	"github.com/lunitide/lunitide/internal/domain/provider"
@@ -24,6 +25,10 @@ func (turnStatsAdapter) Discover(context.Context, []byte) (llmadapter.Discovery,
 	return llmadapter.Discovery{}, nil
 }
 func (turnStatsAdapter) Stream(_ context.Context, _ []byte, _ llmadapter.Request, emit func(llmadapter.Delta) error) (llmadapter.Response, error) {
+	// The duration assertions need a measurable turn. A zero-latency mock can
+	// finish inside the same millisecond on a fast host and truncate to
+	// DurationMs=0, so guarantee the stream outlives one millisecond.
+	time.Sleep(2 * time.Millisecond)
 	if err := emit(llmadapter.Delta{Text: "统计回答"}); err != nil {
 		return llmadapter.Response{}, err
 	}

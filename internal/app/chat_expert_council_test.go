@@ -44,11 +44,11 @@ func TestFormatCouncilBrief(t *testing.T) {
 
 func TestCouncilChairInstructionCompanion(t *testing.T) {
 	brief := formatCouncilBrief("x", nil)
-	chair := councilChairInstruction(brief, true)
+	chair := councilChairInstruction(brief, true, "把这段话润色一下")
 	if !strings.Contains(chair, "语音") {
 		t.Fatalf("companion chair = %q", chair)
 	}
-	chairDesktop := councilChairInstruction(brief, false)
+	chairDesktop := councilChairInstruction(brief, false, "把这段话润色一下")
 	if !strings.Contains(chairDesktop, "## 综合结论") {
 		t.Fatalf("desktop chair = %q", chairDesktop)
 	}
@@ -190,25 +190,25 @@ func TestExpertDeliberatePromptDropsToolsWhenLaneForbids(t *testing.T) {
 	}
 }
 
-func TestCouncilChairL1DoesNotForceDocx(t *testing.T) {
-	chair := councilChairInstructionForLane(formatCouncilBrief("润色这段", nil), false, LaneL1)
+func TestCouncilChairChatDoesNotForceDocx(t *testing.T) {
+	chair := councilChairInstructionForLane(formatCouncilBrief("润色这段", nil), false, LaneChat, "润色这段")
 	if strings.Contains(chair, "必须把交付做完") || councilChairMustUseTools(chair) {
-		t.Fatalf("L1 chair must not hijack polish into gen/search: %q", chair)
+		t.Fatalf("chat chair must not hijack polish into gen/search: %q", chair)
 	}
 	if !strings.Contains(chair, "原任务") && !strings.Contains(chair, "润色") {
-		t.Fatalf("L1 chair = %q", chair)
+		t.Fatalf("chat chair = %q", chair)
 	}
 }
 
 func TestCouncilStepsForLane(t *testing.T) {
-	if councilStepsForLane(LaneL1) != 1 || councilToolsForLane(LaneL1) {
-		t.Fatal("L1 council is 1 step without tools")
+	if councilStepsForLane(LaneChat) != 1 || councilToolsForLane(LaneChat) {
+		t.Fatal("chat council is 1 step without tools")
 	}
-	if councilStepsForLane(LaneL3) != 2 || !councilToolsForLane(LaneL3) {
-		t.Fatal("L3 council is 2 steps with tools")
+	if councilStepsForLane(LaneTask) != 2 || !councilToolsForLane(LaneTask) {
+		t.Fatal("task council is 2 steps with tools")
 	}
-	if councilStepsForLane(LaneL4) != councilExpertMaxSteps {
-		t.Fatal("L4 keeps current council steps")
+	if councilStepsForLane(LaneAgent) != councilExpertMaxSteps {
+		t.Fatal("agent keeps current council steps")
 	}
 }
 
@@ -233,11 +233,11 @@ func TestSelectedTurnExpertIDsChipsAloneAreCouncilRosterT12(t *testing.T) {
 	if !containsAllExpertIDs(got, a, b) || len(got) != 2 {
 		t.Fatalf("T12 chips-only roster = %#v", got)
 	}
-	if !councilShouldRun(LaneL1, got, turn, false) {
+	if !councilShouldRun(LaneChat, got, turn, false) {
 		t.Fatal("T12 chips must open council")
 	}
-	if councilToolsForLane(LaneL1) {
-		t.Fatal("T12 L1 experts must have no tools")
+	if councilToolsForLane(LaneChat) {
+		t.Fatal("T12 chat experts must have no tools")
 	}
 }
 
@@ -247,12 +247,12 @@ func TestBuildExpertCouncilConfigChipsAloneT12(t *testing.T) {
 	a := createNamedLocalExpert(t, e, ctx, "润色A", "req-t12-a")
 	b := createNamedLocalExpert(t, e, ctx, "润色B", "req-t12-b")
 	turn := "[引用专家 润色A|" + a + "][引用专家 润色B|" + b + "]\n把这段话润色得更顺：今天开会很顺利"
-	cfg := e.buildExpertCouncilConfig(ctx, expertCouncilInputs{TurnText: turn, Lane: LaneL1})
+	cfg := e.buildExpertCouncilConfig(ctx, expertCouncilInputs{TurnText: turn, Lane: LaneChat})
 	if cfg == nil || !cfg.Enabled || len(cfg.Experts) < 2 {
 		t.Fatalf("T12 chips-only council = %+v", cfg)
 	}
 	if cfg.Tools || cfg.MaxSteps != 1 {
-		t.Fatalf("T12 L1 experts must be 1 step no tools: steps=%d tools=%v", cfg.MaxSteps, cfg.Tools)
+		t.Fatalf("T12 chat experts must be 1 step no tools: steps=%d tools=%v", cfg.MaxSteps, cfg.Tools)
 	}
 }
 
@@ -276,19 +276,19 @@ func createNamedLocalExpert(t *testing.T, e *Engine, ctx context.Context, name, 
 
 func TestCouncilShouldRunT11T15T21(t *testing.T) {
 	a, b := "01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAW"
-	if !councilShouldRun(LaneL1, []string{a, b}, "润色这段", false) {
-		t.Fatal("T11: L1 + two mounts must run council")
+	if !councilShouldRun(LaneChat, []string{a, b}, "润色这段", false) {
+		t.Fatal("T11: chat + two mounts must run council")
 	}
-	if councilShouldRun(LaneL0, []string{a, b}, "你好", false) {
-		t.Fatal("T21: L0 must not run council")
+	if councilShouldRun(LaneChat, []string{a, b}, "你好", false) {
+		t.Fatal("T21: greeting chat must not run council")
 	}
-	if councilShouldRun(LaneL1, nil, "请两位一起评", false) {
+	if councilShouldRun(LaneChat, nil, "请两位一起评", false) {
 		t.Fatal("T15: no mounts must not run council")
 	}
 	if !councilInviteNeeded("请两位一起评这份稿", nil) {
 		t.Fatal("T15: must ask the user to mount two experts")
 	}
-	if councilShouldRun(LaneL1, []string{a, b}, "润色这段", true) {
+	if councilShouldRun(LaneChat, []string{a, b}, "润色这段", true) {
 		t.Fatal("companion must not run council")
 	}
 }

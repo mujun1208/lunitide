@@ -56,6 +56,7 @@ type chatTurnCheckpoint struct {
 	DocxGenerated      bool                           `json:"docxGenerated,omitempty"`
 	DocxChars          int                            `json:"docxChars,omitempty"`
 	SkipOfficeResearch bool                           `json:"skipOfficeResearch,omitempty"`
+	Escalations        int                            `json:"escalations,omitempty"`
 	PersistDraft       string                         `json:"persistDraft,omitempty"`
 	PersistFailed      bool                           `json:"persistFailed,omitempty"`
 	PersistUsage       messageapp.AssistantUsage      `json:"persistUsage,omitempty"`

@@ -38,48 +38,71 @@ func TestBareEntityTopicLookupIntent(t *testing.T) {
 	}
 }
 
-func TestLookupFollowUpOverridesRoute(t *testing.T) {
-	apps := []string{"微信", "飞书", "浏览器"}
-	if !lookupFollowUpOverridesRoute(RouteR2, "查询啊", apps) {
-		t.Fatal("lookup follow-up misread as R2 must be suppressed to R1")
+func TestRouteMisjudgeKeepsFullToolSurface(t *testing.T) {
+	// v2 FR-201: a lookup follow-up ("查询啊") that the flash classifier
+	// misreads as R2 keeps the full tool surface — an intent prediction can
+	// never shrink tools, so the 0.18.3 suppression hack is gone for good.
+	laneIn := LaneInput{Goal: "查询啊"}
+	lane := classifyChatLane(laneIn)
+	_, contract := applyLaneOverrides(lane, laneIn, RouteR2, CouncilOverlay{})
+	if contract.Lane != LaneAgent {
+		t.Fatalf("R2 must raise the budget tier, got lane %s", contract.Lane)
 	}
-	if !lookupFollowUpOverridesRoute(RouteR3, "查询啊", apps) {
-		t.Fatal("lookup follow-up misread as R3 must be suppressed to R1")
+	defs := []llmadapter.ToolDefinition{
+		{Name: "web.search"}, {Name: "web.fetch"}, {Name: "computer.act"}, {Name: "user.ask"},
 	}
-	if lookupFollowUpOverridesRoute(RouteR1, "查询啊", apps) {
-		t.Fatal("R1 needs no suppression")
-	}
-	if lookupFollowUpOverridesRoute(RouteR2, "打开微信", apps) {
-		t.Fatal("desktop app goal must keep R2")
-	}
-	if lookupFollowUpOverridesRoute(RouteR2, "在微信里查一下天气", apps) {
-		t.Fatal("named-app lookup goal must keep R2")
+	kept := applyLaneTools(defs, contract)
+	for _, name := range []string{"web.search", "web.fetch", "computer.act", "user.ask"} {
+		if !toolDefinitionsHave(kept, name) {
+			t.Fatalf("misjudged route must not drop %s: %v", name, kept)
+		}
 	}
 }
 
-func TestLaneRescueForBareEntityAndSemanticR1(t *testing.T) {
+func TestLaneBudgetFloorForBareEntityAndSemanticR1(t *testing.T) {
 	// A bare company name carries no lookup verb; the bare-entity intent
-	// must still open the lane rescue (web search + a real step budget).
+	// must still carry a real step budget so the search can actually run.
 	laneIn := LaneInput{Goal: "北京支点互动科技有限公司"}
 	lane := classifyChatLane(laneIn)
+	if lane != LaneChat {
+		t.Fatalf("bare company name classifies as chat, got %s", lane)
+	}
 	_, contract := applyLaneOverrides(lane, laneIn, RouteUnspecified, CouncilOverlay{})
-	if !contract.AllowWebSearch || contract.MaxMainToolSteps < 4 {
-		t.Fatalf("bare company name must get web search + >=4 steps: %+v", contract)
+	// v2: a bare entity is an R1-semantics lookup turn — the task-tier floor
+	// (FR-200) is enough budget for the search to actually run.
+	if contract.MaxMainToolSteps < laneTaskBudgetSteps || !contract.ContinueNudges {
+		t.Fatalf("bare company name must get a lookup budget: %+v", contract)
 	}
 	defs := []llmadapter.ToolDefinition{
 		{Name: "web.search"}, {Name: "web.fetch"}, {Name: "workspace.read"}, {Name: "user.ask"},
 	}
 	kept := applyLaneTools(defs, contract)
 	if !toolDefinitionsHave(kept, "web.search") {
-		t.Fatalf("rescued L1 surface must keep web.search: %v", kept)
+		t.Fatalf("full surface must keep web.search: %v", kept)
 	}
-	// The semantic (flash) classifier's R1 conclusion must reach the lane
-	// rescue even when keyword detectors see nothing.
+	// The semantic (flash) classifier's R1 conclusion must reach the budget
+	// baseline even when keyword detectors see nothing.
 	laneIn = LaneInput{Goal: "今天有什么大事"}
 	lane = classifyChatLane(laneIn)
 	_, contract = applyLaneOverrides(lane, laneIn, RouteR1, CouncilOverlay{})
-	if !contract.AllowWebSearch || contract.MaxMainToolSteps < 4 {
-		t.Fatalf("semantic R1 must feed the lane rescue: %+v", contract)
+	if contract.MaxMainToolSteps < 4 {
+		t.Fatalf("semantic R1 must feed the budget baseline: %+v", contract)
+	}
+	// Low confidence (unspecified route on a goal-driven turn) is
+	// conservative: the agent-tier budget floor plus continue nudges, full
+	// surface, no tool shrink (FR-200 NONE→agent).
+	laneIn = LaneInput{Goal: "把这段话改得更委婉一些"}
+	lane = classifyChatLane(laneIn)
+	if lane != LaneChat {
+		t.Fatalf("in-place prose classifies as chat, got %s", lane)
+	}
+	_, contract = applyLaneOverrides(lane, laneIn, RouteUnspecified, CouncilOverlay{})
+	if contract.MaxMainToolSteps != laneAgentBudgetSteps || !contract.ContinueNudges {
+		t.Fatalf("unspecified route keeps the agent-tier conservative floor: %+v", contract)
+	}
+	full := applyLaneTools([]llmadapter.ToolDefinition{{Name: "web.search"}, {Name: "office.ppt_gen"}}, contract)
+	if len(full) != 2 {
+		t.Fatalf("unspecified route must keep full surface: %v", full)
 	}
 }
 

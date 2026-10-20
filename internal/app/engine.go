@@ -388,8 +388,8 @@ type streamState struct {
 	kbDiscarded         int
 	mroTurn             bool
 	taskRoute           TaskRoute
-	taskAllow           map[string]bool
 	lane                LaneContract
+	signals             stateSignals
 	inviteLead          string
 	usedScreenTools     bool
 	fullTools           []llmadapter.ToolDefinition
@@ -397,6 +397,10 @@ type streamState struct {
 	windowRetryCount    int
 	prevWasToolGoal     bool
 	prevSuccessfulTools int
+	// mediaSessionActive: the previous turn drove the in-app media session
+	// (media.* tool or an owned media-center goal). Bare continue words
+	// ("下一首") only count as session actions while it is true (G-306).
+	mediaSessionActive bool
 }
 
 type streamLifecycle uint8

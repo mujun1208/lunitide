@@ -171,11 +171,15 @@ func TestSettingsPlaneToolDefinitionsIncludeDiscover(t *testing.T) {
 	}
 }
 
-func TestPickTaskToolsKeepsGatewayTools(t *testing.T) {
+func TestLaneToolsKeepGatewayTools(t *testing.T) {
+	// v2 FR-100: lanes may not shrink the surface, so capability.discover
+	// (a gateway tool) survives by construction — but the contract test stays
+	// to pin the invariant against whitelist regressions.
 	catalog := []llmadapter.ToolDefinition{
 		{Name: "web.search"}, {Name: "capability.discover"}, {Name: "mcp.install"},
 	}
-	out := pickTaskTools(nil, catalog, map[string]bool{})
+	contract := buildLaneContract(LaneChat, RouteUnspecified, CouncilOverlay{})
+	out := applyLaneTools(catalog, contract)
 	hasDiscover := false
 	for _, d := range out {
 		if d.Name == "capability.discover" {
@@ -183,6 +187,6 @@ func TestPickTaskToolsKeepsGatewayTools(t *testing.T) {
 		}
 	}
 	if !hasDiscover {
-		t.Fatalf("capability.discover must survive lane trimming: %+v", out)
+		t.Fatalf("capability.discover must survive lane tooling: %+v", out)
 	}
 }

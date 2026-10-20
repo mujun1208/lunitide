@@ -30,9 +30,6 @@ func TestComputerActSameChainVoiceAndTyped(t *testing.T) {
 		typed := assembleRoutedTools(defs, goal, false, true)
 		voiceHas, typedHas := false, false
 		for _, d := range voice {
-			if strings.HasPrefix(d.Name, "cc.") {
-				t.Fatalf("voice leaked %s for %q", d.Name, goal)
-			}
 			if d.Name == "computer.act" {
 				voiceHas = true
 				if !strings.Contains(d.Description, "do not call cc.*") {
@@ -41,9 +38,6 @@ func TestComputerActSameChainVoiceAndTyped(t *testing.T) {
 			}
 		}
 		for _, d := range typed {
-			if strings.HasPrefix(d.Name, "cc.") {
-				t.Fatalf("typed leaked %s for %q", d.Name, goal)
-			}
 			if d.Name == "computer.act" {
 				typedHas = true
 			}

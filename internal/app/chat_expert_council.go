@@ -149,7 +149,7 @@ func selectedTurnExpertIDs(mounted []string, turnTexts ...string) []string {
 }
 
 func councilShouldRun(lane ChatLane, roster []string, goal string, companion bool) bool {
-	if companion || lane == LaneL0 || skipExpertCouncil(goal) {
+	if companion || (lane == LaneChat && isShortIdleGreeting(goal)) || skipExpertCouncil(goal) {
 		return false
 	}
 	return len(roster) >= 2
@@ -301,11 +301,13 @@ func (e *Engine) buildExpertCouncilConfig(ctx context.Context, in expertCouncilI
 	}
 }
 
+// G-307: council steps are capped by the budget tier (chat 1 / task 2 /
+// agent 6) and the council budget stays separate from the main loop.
 func councilStepsForLane(lane ChatLane) int {
 	switch lane {
-	case LaneL0, LaneL1, LaneL2, LaneL2Ask:
+	case LaneChat:
 		return 1
-	case LaneL3:
+	case LaneTask:
 		return 2
 	default:
 		return councilExpertMaxSteps
@@ -313,12 +315,7 @@ func councilStepsForLane(lane ChatLane) int {
 }
 
 func councilToolsForLane(lane ChatLane) bool {
-	switch lane {
-	case LaneL0, LaneL1, LaneL2, LaneL2Ask:
-		return false
-	default:
-		return true
-	}
+	return lane != LaneChat
 }
 
 func expertDeliberateSystemPromptForTools(name, body string, tools bool) string {
@@ -485,21 +482,24 @@ func formatCouncilBrief(question string, opinions []councilOpinion) string {
 	return b.String()
 }
 
-func councilChairInstruction(brief string, companion bool) string {
-	return councilChairInstructionForLane(brief, companion, LaneL4)
+func councilChairInstruction(brief string, companion bool, goal string) string {
+	return councilChairInstructionForLane(brief, companion, LaneAgent, goal)
 }
 
-func councilChairInstructionForLane(brief string, companion bool, lane ChatLane) string {
+// v2: the chair discipline keys off the budget tier plus the materials
+// state — chat keeps prose-only, task asks-or-uses-materials, agent delivers.
+func councilChairInstructionForLane(brief string, companion bool, lane ChatLane, goal string) string {
 	if companion {
 		return brief + "\n\n你是月汐（会议主席）。上面是各位专家的独立意见。请综合分歧与共识，给用户一份最优方案：先 1-2 句结论（适合语音朗读），再简短说明关键分歧与推荐取舍。不要逐条复读每位专家原文，不要拆成多条助手消息。\n"
 	}
 	switch lane {
-	case LaneL1:
+	case LaneChat:
 		return brief + "\n\n你是月汐（会议主席）。上面是各位专家的独立意见。请综合后只完成用户原任务（润色或对话成文）。禁止要求 web.search，禁止调用未点名的 *.gen。不要把润色做成调研或 Word。\n"
-	case LaneL2:
-		return brief + "\n\n你是月汐（会议主席）。上面是各位专家的独立意见。请综合后只用已有材料生成用户点名的文件。禁止 web.search。禁止补编用户没给的数字。\n"
-	case LaneL2Ask:
-		return brief + "\n\n你是月汐（会议主席）。上面是各位专家的独立意见。请综合后只列出还缺什么材料，问一句即停。禁止 web.search，禁止 *.gen。\n"
+	case LaneTask:
+		if hasTurnMaterials(goal, false, false) || lookupOptedOut(goal) {
+			return brief + "\n\n你是月汐（会议主席）。上面是各位专家的独立意见。请综合后只用已有材料生成用户点名的文件。禁止 web.search。禁止补编用户没给的数字。\n"
+		}
+		return brief + "\n\n你是月汐（会议主席）。上面是各位专家的独立意见。请综合后先核实材料：材料已齐就直接产出文件；不齐就只列出还缺什么，问一句即停，禁止编造。\n"
 	}
 	return brief + "\n\n你是月汐（会议主席）。上面是各位专家的独立征询结果。请输出一份给用户的最优方案，结构如下：\n" +
 		"## 综合结论\n（明确推荐方案）\n\n" +
@@ -509,11 +509,11 @@ func councilChairInstructionForLane(brief string, companion bool, lane ChatLane)
 		"综合后必须把交付做完：需要网上事实就 web.search / web.fetch；结构图画 mermaid；成文用 office.generate 或 docx.gen / excel.gen / pptx.gen / html.gen，写入当前对话文件夹，只有用户明确说放到桌面才设 desktop=true；匹配技能立刻 skill.invoke。不要只给口头结论交差。\n"
 }
 
-func injectCouncilChairBrief(req *llmadapter.Request, brief string, companion bool, lane ChatLane) {
+func injectCouncilChairBrief(req *llmadapter.Request, brief string, companion bool, lane ChatLane, goal string) {
 	if req == nil || brief == "" {
 		return
 	}
-	chair := councilChairInstructionForLane(brief, companion, lane)
+	chair := councilChairInstructionForLane(brief, companion, lane, goal)
 	// The chair brief names this turn's experts, so it changes every turn.
 	// Appending it to the head system message would break the provider prefix
 	// cache for the whole history; it rides as a trailing system message like
@@ -614,6 +614,6 @@ func (e *Engine) applyExpertCouncil(ctx context.Context, a llmadapter.Adapter, c
 		return
 	}
 	if brief != "" {
-		injectCouncilChairBrief(req, brief, companion, cfg.Lane)
+		injectCouncilChairBrief(req, brief, companion, cfg.Lane, cfg.Question)
 	}
 }

@@ -68,14 +68,28 @@ func bundledWorkflowInjection(turnText ...string) string {
 	return bundledWorkflowInjectionForLane(text, lane)
 }
 
+// officeAskFirstTurn reports an office-deliverable turn with no materials in
+// hand (G-301's domain): the ask-first discipline must not be interrupted by
+// an auto web lookup.
+func officeAskFirstTurn(goal string) bool {
+	return laneLooksLikeOfficeDeliverable(goal) && !hasTurnMaterials(goal, false, false) && !lookupOptedOut(goal)
+}
+
+// officeDeliverableWithMaterials reports an office-deliverable turn whose
+// materials are already in hand: write-from-reference mode ends when the file
+// lands, so continue-nudges must not fire.
+func officeDeliverableWithMaterials(goal string) bool {
+	return laneLooksLikeOfficeDeliverable(goal) && (hasTurnMaterials(goal, false, false) || lookupOptedOut(goal))
+}
+
 func bundledWorkflowInjectionForLane(text string, lane ChatLane) string {
 	clauses := selectWorkflowClauses(text, lane)
 	if len(clauses) == 0 {
 		return "\n\n[内置工作流] 匹配当前任务才展开细则。工具结果 ok:false 时不得对用户报成功。\n"
 	}
 	disc := workflowDisciplineClause
-	if chatLanesEnabled() && lane == LaneL2Ask {
-		disc = "使用规则：本轮只问缺什么，问完即停。不要 web.search，不要调用 *.gen。\n"
+	if chatLanesEnabled() && lane == LaneTask && includeOfficeGenWorkflow(text) && !hasTurnMaterials(text, false, false) {
+		disc = "使用规则：本轮先确认材料，缺什么问一句即停；材料已齐才生成文件，不要编造。\n"
 	}
 	return "\n\n[内置工作流] 开箱即用，直接调用已有工具，不必安装技能、不必 MCP：\n" +
 		strings.Join(clauses, "") +
@@ -127,8 +141,10 @@ func selectWorkflowClauses(text string, lane ChatLane) []string {
 		out = append(out, "- 车票/航班/行情：先 mcp.search 找当前已连接的专用接口，再按真实schema调用。缺日期/地点/证券市场先核实；若没有接口，说明尚未接入，立刻结束本轮，不能凭网页摘要或旧记忆报实时余票/报价。禁止 web.search/web.fetch/browser.act 访问 12306。仅当用户明确说打开某网站或允许网上查时才用公开网页，并标明来源与时间。\n")
 	}
 	if has("调研", "搜", "天气", "search") || (has("查") && !has("火车", "高铁", "机票", "航班", "车票")) {
-		skipResearch := chatLanesEnabled() && (lane == LaneL2 || lane == LaneL2Ask ||
-			(looksLikeReportTask(text) && !laneLooksLikeResearch(text)))
+		// v2: research stays allowed even without materials — G-304 lets the
+		// model verify first instead of fabricating; only a report task that
+		// never asked for research skips the clause.
+		skipResearch := chatLanesEnabled() && looksLikeReportTask(text) && !laneLooksLikeResearch(text)
 		if !skipResearch {
 			out = append(out, workflowResearchClause)
 		}
@@ -153,14 +169,13 @@ func selectWorkflowClauses(text string, lane ChatLane) []string {
 		out = append(out, workflowGitClause)
 	}
 	if includeOfficeGenWorkflow(text) {
-		if chatLanesEnabled() {
-			switch lane {
-			case LaneL2Ask:
-				out = append(out, "- 本轮要出文件但还没有可用材料：只用一句话问缺什么（本周完成、风险、下周或请贴笔记），不要 web.search，不要调用 *.gen。\n")
-			case LaneL2:
+		if chatLanesEnabled() && lane == LaneTask {
+			// v2: the clause keys off the materials state (G-301's domain),
+			// not off a lane whitelist.
+			if hasTurnMaterials(text, false, false) || lookupOptedOut(text) {
 				out = append(out, "- "+referenceOfficeInstruction+"\n")
-			default:
-				out = append(out, officeGenWorkflowClause)
+			} else {
+				out = append(out, "- 本轮要出文件但还没有可用材料：先核实或问清缺什么（本周完成、风险、下周或请贴笔记）；核实到的内容标注来源，禁止编造后直接 *.gen。\n")
 			}
 		} else {
 			out = append(out, officeGenWorkflowClause)

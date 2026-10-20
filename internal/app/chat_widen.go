@@ -111,7 +111,7 @@ func looksLikePasteRefusal(text string) bool {
 }
 
 func widenLaneContract() LaneContract {
-	return buildLaneContract(LaneL4, RouteUnspecified, CouncilOverlay{})
+	return buildLaneContract(LaneAgent, RouteUnspecified, CouncilOverlay{})
 }
 
 func applyWidenedTools(full []llmadapter.ToolDefinition) []llmadapter.ToolDefinition {

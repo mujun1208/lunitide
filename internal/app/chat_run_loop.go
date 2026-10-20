@@ -234,6 +234,12 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 			}
 			e.applyExpertCouncil(op, turnBudgetAdapter{Adapter: a, budget: &generationBudget}, credential, req.Model, state.council, &req, state.companion, send)
 			state.council = nil
+			state.signals = collectTurnSignals(turn.Goal, state.taskRoute, state.mediaSessionActive)
+			// A bound reference document (office task context) is materials:
+			// the office pipeline owns that turn's generation discipline.
+			if officeTaskContextID(op) != "" {
+				state.signals.HasMaterials = true
+			}
 			startOfficeWorkflowsIfNeeded(&req, &turn, send, state.lane, officeTaskContextID(op), turn.CapabilityWork)
 			prepareDirectDocument(&req, &turn, send)
 			prepareDirectCanvas(&req, turn.Goal)
@@ -744,6 +750,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						return nil
 					}
 					if !turnAlreadySettled && !autoLookupDone && !turnAttemptedWebLookup(req.Messages) &&
+						!officeAskFirstTurn(turn.Goal) &&
 						(looksLikeCurrentLookupTurn(turn.Goal) || discoveryAskedForWebLookup(req.Messages)) {
 						if inventoryLookupBlocksPublicWeb(turn.Goal) && toolDefinitionsHave(req.Tools, "mcp.search") && !turnAttemptedAction(req.Messages, "lookup") {
 							if searchArgs := fallbackMcpSearchArgs(turn.Goal); len(searchArgs) > 0 {
@@ -756,12 +763,11 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							}
 						} else {
 							if !toolDefinitionsHave(req.Tools, "web.search") && toolDefinitionsHave(state.fullTools, "web.search") {
-								// A lane or route stripped the web family while the turn
-								// still needs it. Re-attach from the full catalog so the
-								// injected search can actually run, and grant back the
-								// steps the narrow lane had removed.
+								// A companion deny or a legacy surface still lacking the
+								// web family while the turn needs it: re-attach from the
+								// full catalog so the injected search can actually run,
+								// and grant back the steps the narrow budget removed.
 								req.Tools = appendWebLookupTools(req.Tools, state.fullTools)
-								state.lane.AllowWebSearch = true
 								if state.lane.MaxMainToolSteps < 4 {
 									state.lane.MaxMainToolSteps = 4
 								}
@@ -769,7 +775,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 									toolLoopLimit = min(step+2, maxToolLoopStepsHard)
 								}
 							}
-							if laneAllowsWebSearch(state.lane) && toolDefinitionsHave(req.Tools, "web.search") {
+							if toolDefinitionsHave(req.Tools, "web.search") {
 								if searchArgs := fallbackWebSearchArgs(autoLookupQuery(turn.Goal, req.Messages)); len(searchArgs) > 0 {
 									result.Message.ToolCalls = []llmadapter.ToolCall{{
 										ID:        "auto-" + ulid.Make().String(),
@@ -969,7 +975,14 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						result.Message.Content = text
 						stepText = text
 					}
-					if state.lane.Lane == LaneL2 && continueKind != "" && continueKind != "incomplete" {
+					if officeDeliverableWithMaterials(turn.Goal) && continueKind != "" && continueKind != "incomplete" {
+						continueKind = ""
+					}
+					// G-302 ask-once gate: a task-tier turn with no successful
+					// tool call whose reply is a question is asking for missing
+					// inputs — let it land, do not nudge (PRD 4.4).
+					if stateGatesEnabled() && continueKind != "" && state.lane.Lane == LaneTask &&
+						len(turn.LastTools) == 0 && step < 2 && assistantAsksQuestion(assistantText.String()) {
 						continueKind = ""
 					}
 					if (continueKind == "desktop" || continueKind == "ladder") && companionBrowserLookupSettled(turn.Goal, stepText, req.Messages) {
@@ -1023,9 +1036,27 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							}
 						}
 					}
-					if continueKind == "" && state.lane.Lane != LaneL2 && laneAllowsContinueNudges(state.lane) {
+					if continueKind == "" && !officeDeliverableWithMaterials(turn.Goal) && laneAllowsContinueNudges(state.lane) {
 						if open, total := planChecklist(req.Messages); planPauseRoom(nudges, open, total) {
 							continueKind = "plan"
+						}
+					}
+					// FR-500: budget escalation loop. A near-exhausted budget
+					// with zero successful tool calls means the tier was too
+					// small for the real task: promote the tier (chat → task →
+					// agent, at most twice a turn), refill the baseline, and
+					// nudge the model to finish the job. The 0.18.3 auto-lookup
+					// ladder re-runs naturally on the next step as the first
+					// consumer.
+					if stateGatesEnabled() && continueKind == "" && !settledNow && len(turn.LastTools) == 0 &&
+						state.lane.Lane != LaneChat &&
+						step+1 >= toolLoopLimit && toolLoopLimit < maxToolLoopSteps && turn.Escalations < 2 &&
+						strings.TrimSpace(turn.Goal) != "" && !state.companion {
+						if promoteLaneBudget(&state.lane, &turn.Escalations) {
+							toolLoopLimit = state.lane.MaxMainToolSteps
+							continueKind = "escalated"
+							log.Printf("chat.gate stream=%s gate=G-500 escalate lane=%s steps=%d", id, state.lane.Lane, toolLoopLimit)
+							_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: "预算档位已升级，继续执行。\n"}})
 						}
 					}
 					if continueKind == "" && !skillDraftOffered {
@@ -1075,6 +1106,8 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "上一段只是计划，文件还没写。立刻调用工具写入，不要再复述同一段计划。写完后再用一句话给出结果。"}
 						case "plan":
 							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "清单里还有未完成的步骤。就在这一轮里连续调用工具把剩下的步骤全部做完，做完一步就用 todo.write 更新整份清单，全部完成后再停。不要把每一步拆成单独的续轮。"}
+						case "escalated":
+							nudge = llmadapter.Message{Role: llmadapter.RoleSystem, Content: "预算已升级：继续完成用户目标，优先调用工具执行，不要只复述计划。"}
 						}
 						if bufferReply {
 							nudge.Content += "\n前面的回答草稿尚未发送给用户。最终回答必须直接给出实质结果，不能只说上面已经给出或不用重复。"
@@ -1309,6 +1342,37 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					prepared, retryHint := prepareToolArguments(call.Name, call.Arguments, toolSchemaByName(req.Tools, call.Name))
 					call.Arguments = prepared
 					digest := argsDigestOrFallback(call.Name, prepared)
+					// FR-300: the state-gate rule table (G-301..G-306). The
+					// gate intercepts this single call — the tool surface
+					// stays intact — and feeds a structured reason back so the
+					// model can switch to a legal path.
+					if verdict := evalToolGate(state.signals, turn.Goal, call.Name, call.Arguments, req.Messages, gateOfficePipelineOwns(&turn)); verdict.Deny {
+						if future, ok := parallelFutures[call.ID]; ok {
+							select {
+							case <-future:
+							case <-op.Done():
+							}
+							delete(parallelFutures, call.ID)
+						}
+						if future, ok := subagentFutures[call.ID]; ok {
+							select {
+							case <-future:
+							case <-op.Done():
+							}
+							delete(subagentFutures, call.ID)
+						}
+						_ = send(bridge.Event{Type: bridge.EventThinking, Thinking: &bridge.ThinkingEvent{Text: verdict.Notice}})
+						if err := send(bridge.Event{Type: bridge.EventToolStarted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: clipToolSummary(toolStartedSummary(call.Name, call.Arguments))}}); err != nil {
+							return err
+						}
+						summary := clipToolSummary(verdict.Reason)
+						if err := send(bridge.Event{Type: bridge.EventToolCompleted, Tool: &bridge.ToolEvent{CallID: call.ID, Name: call.Name, ArgsDigest: digest, Summary: summary}}); err != nil {
+							return err
+						}
+						req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleTool, ToolCallID: call.ID, Content: summary})
+						journalGate(id, verdict.GateID, call.Name, state.signals)
+						continue
+					}
 					if retryHint != "" {
 						if future, ok := parallelFutures[call.ID]; ok {
 							select {
@@ -1490,7 +1554,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						continue
 					}
 					if planToolNames[call.Name] {
-						summary, invokeErr := e.invokePlanRunToolRouted(op, a, credential, req.Model, sessionID, mode, call.Arguments, state.taskRoute, state.taskAllow)
+						summary, invokeErr := e.invokePlanRunTool(op, a, credential, req.Model, sessionID, mode, call.Arguments)
 						if invokeErr != nil {
 							summary = invokeErr.Error()
 						}
@@ -1931,6 +1995,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				}
 				for _, call := range result.Message.ToolCalls {
 					turn.LastTools = append(turn.LastTools, call.Name)
+					// FR-300: fold call outcomes into the signal state
+					// (file-just-opened, web evidence) for the next gate
+					// evaluations.
+					updateSignalsAfterTool(&state.signals, call.Name, call.Arguments, lastToolOutput(req.Messages))
 				}
 				if draft := strings.TrimSpace(assistantText.String()); draft != "" {
 					turn.PersistDraft = draft

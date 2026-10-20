@@ -262,29 +262,27 @@ func TestArtifactExportAcceptsCodeDeliverables(t *testing.T) {
 }
 
 // TestArtifactDeliveryChainEndToEnd walks one user file request through every
-// gate the deliverable must pass: goal text → lane routing keeps the workspace
-// tools in the shrunk tool face → the write lands on disk → card metadata,
-// event gate and chat gate all accept code → the model's confirmation survives
-// the disk-write fold → clicking the card previews bounded text → reviewing
+// gate the deliverable must pass: goal text → the profile full surface keeps
+// the workspace tools → the write lands on disk → card metadata, event gate
+// and chat gate all accept code → the model's confirmation survives the
+// disk-write fold → clicking the card previews bounded text → reviewing
 // (accept) persists → exporting round-trips the exact bytes to the user's disk.
 func TestArtifactDeliveryChainEndToEnd(t *testing.T) {
-	// Gate A: a compound R1 goal ("look up news, then write a script") must
-	// keep the workspace tools through the lane shrink.
+	// Gate A: v2 FR-100 — a compound R1 goal ("look up news, then write a
+	// script") keeps workspace.write because the intent route no longer
+	// shrinks the tool face.
 	goal := "查一下今天的新闻，然后写个分析脚本"
-	route, allow := classifyTaskRoute(goal, false, true)
+	route, _ := classifyTaskRoute(goal, false, true)
 	if route != RouteR1 {
 		t.Fatalf("route=%q want R1", route)
 	}
-	if !allow["workspace.write"] {
-		t.Fatal("file-output goal lost workspace.write in the lane allow-set")
-	}
-	face := applyTaskRoute(engineToolDefinitions(), route, allow)
+	face := engineToolDefinitions()
 	onFace := map[string]bool{}
 	for _, d := range face {
 		onFace[d.Name] = true
 	}
 	if !onFace["workspace.write"] {
-		t.Fatal("shrunk tool face dropped workspace.write")
+		t.Fatal("profile full surface dropped workspace.write")
 	}
 
 	// The write itself: the script the model emits for that goal.

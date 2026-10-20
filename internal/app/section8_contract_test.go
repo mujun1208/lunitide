@@ -34,35 +34,30 @@ func TestSection8ManualContracts(t *testing.T) {
 	})
 	t.Run("11-14-video-share-honesty", func(t *testing.T) {
 		cases := []struct {
-			goal   string
-			route  TaskRoute
-			must   string
-			forbid []string
+			goal  string
+			route TaskRoute
+			must  string
 		}{
-			{"https://www.bilibili.com/video/BV1xx411c7mD", RouteR1, "video.understand", []string{"browser.act", "media.play"}},
-			{"https://v.douyin.com/x", RouteR1, "video.understand", []string{"browser.act", "media.play"}},
-			{"https://v.qq.com/x/page/n001.html", RouteR1, "video.understand", []string{"browser.act"}},
-			{"https://youtu.be/dQw4w9wgGc", RouteR1, "video.understand", []string{"browser.act", "media.play"}},
-			{"6.66 复制打开抖音 https://v.douyin.com/x", RouteR1, "video.understand", []string{"browser.act"}},
-			{"用浏览器打开 https://www.bilibili.com/video/BV1xx", RouteR3, "browser.act", []string{"video.understand"}},
+			{"https://www.bilibili.com/video/BV1xx411c7mD", RouteR1, "video.understand"},
+			{"https://v.douyin.com/x", RouteR1, "video.understand"},
+			{"https://v.qq.com/x/page/n001.html", RouteR1, "video.understand"},
+			{"https://youtu.be/dQw4w9wgGc", RouteR1, "video.understand"},
+			{"6.66 复制打开抖音 https://v.douyin.com/x", RouteR1, "video.understand"},
+			{"用浏览器打开 https://www.bilibili.com/video/BV1xx", RouteR3, "browser.act"},
 		}
 		for _, tc := range cases {
 			route, allow := classifyTaskRoute(tc.goal, false, true)
 			if route != tc.route || !allow[tc.must] {
 				t.Fatalf("%q route=%s allow=%v", tc.goal, route, allow)
 			}
-			kept := applyTaskRoute(defs, route, allow)
+			// v2 FR-100: the route only feeds prompts and budget — the full
+			// surface keeps the must-have family and everything else.
 			names := map[string]bool{}
-			for _, d := range kept {
+			for _, d := range defs {
 				names[d.Name] = true
 			}
 			if !names[tc.must] {
 				t.Fatalf("%q dropped %s", tc.goal, tc.must)
-			}
-			for _, name := range tc.forbid {
-				if names[name] {
-					t.Fatalf("%q leaked %s", tc.goal, name)
-				}
 			}
 		}
 	})

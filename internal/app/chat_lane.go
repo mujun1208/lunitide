@@ -13,6 +13,17 @@ import (
 
 type ChatLane string
 
+// v2 budget tiers (PRD 4.1). The tier only owns the budget plane: model tier,
+// step baseline, and nudge policy. It never shrinks the tool surface.
+const (
+	LaneChat  ChatLane = "chat"  // greetings / in-place prose / casual turns
+	LaneTask  ChatLane = "task"  // single-turn deliverables and research
+	LaneAgent ChatLane = "agent" // multi-step agent turns (continue / code / desktop / media)
+)
+
+// Legacy v1.4 lane strings kept only as migrateLaneV1 inputs. Session replay
+// and journal readers map them onto the v2 tiers; nothing else may consume
+// them (FR-400).
 const (
 	LaneL0    ChatLane = "L0"
 	LaneL1    ChatLane = "L1"
@@ -21,6 +32,22 @@ const (
 	LaneL3    ChatLane = "L3"
 	LaneL4    ChatLane = "L4"
 )
+
+// migrateLaneV1 is the single source of truth for v1.4 → v2 lane mapping
+// (PRD 4.1). Pure function; shared by session restore, journal replay, and
+// the grayscale switch. Unknown values fall back to the middle tier.
+func migrateLaneV1(old ChatLane) ChatLane {
+	switch old {
+	case LaneL0, LaneL1:
+		return LaneChat
+	case LaneL2, LaneL2Ask, LaneL3:
+		return LaneTask
+	case LaneL4:
+		return LaneAgent
+	default:
+		return LaneTask
+	}
+}
 
 type LaneInput struct {
 	Goal             string
@@ -42,22 +69,29 @@ type CouncilOverlay struct {
 }
 
 type LaneContract struct {
-	Lane                       ChatLane
-	Route                      TaskRoute
-	DisableReasoning           bool
-	SkipOfficeResearchPipeline bool
-	AllowWebSearch             bool
-	AllowOfficeGen             bool
-	MaxMainToolSteps           int
-	ContinueNudges             bool
-	Council                    CouncilOverlay
-	KeepSpecialistTools        bool
+	Lane             ChatLane
+	Route            TaskRoute
+	DisableReasoning bool
+	MaxMainToolSteps int
+	ContinueNudges   bool
+	Council          CouncilOverlay
 }
 
 var numberedPointRE = regexp.MustCompile(`^\d+[\.、)]\s*\S`)
 
 func chatLanesEnabled() bool {
+	// FR-700: "off" disables the whole v2 chain (budget lanes, state gates,
+	// upgrade loop) and falls back to the profile full surface with no budget
+	// tiers. The v1.4 stripping code no longer exists, so off is the simplest
+	// mode, not the old behavior.
 	return !strings.EqualFold(strings.TrimSpace(os.Getenv("LUNITIDE_CHAT_LANES")), "off")
+}
+
+// stateGatesEnabled reports whether the run-time ToolGate rules (G-301..G-307)
+// evaluate and intercept calls. Independent of the lane budget switch so a
+// gate regression can be isolated without losing budget tiers (FR-700).
+func stateGatesEnabled() bool {
+	return !strings.EqualFold(strings.TrimSpace(os.Getenv("LUNITIDE_STATE_GATES")), "off")
 }
 
 func resolveLaneGoal(text, checkpointGoal string) string {
@@ -71,74 +105,68 @@ func resolveLaneGoal(text, checkpointGoal string) string {
 func classifyChatLane(in LaneInput) ChatLane {
 	goal := chatRoutingText(in.Goal)
 	if goal == "" {
-		return LaneL0
+		return LaneChat
 	}
 	if isShortIdleGreeting(goal) {
-		return LaneL0
+		return LaneChat
 	}
-	// Playing in the media center needs media.play on the first step. The
-	// one-step read lane only loads the skill, then tells the user the step
+	// Playing in the media center needs media.play on the first step. A
+	// one-step chat tier only loads the skill, then tells the user the step
 	// budget ran out.
 	if ownedMediaCenterGoal(goal) && !laneLooksLikeInPlaceProse(goal) {
-		return LaneL4
+		return LaneAgent
 	}
 	// "继续" / "把没做完的做完" is the same task, not a new chat sentence.
-	// The one-step read lane makes the model announce the rest and stop.
+	// The chat tier would make the model announce the rest and stop.
 	if looksLikeFinishOpenWork(goal) {
-		return LaneL4
+		return LaneAgent
 	}
 	if laneLooksLikeAgentTurn(goal) {
-		return LaneL4
+		return LaneAgent
 	}
 	if capabilityWorkTask(goal) {
-		return LaneL3
+		return LaneTask
 	}
 	if mediaGenerationKind(goal) != "" {
-		return LaneL3
+		return LaneTask
 	}
 	if laneLooksLikeExternalUnderstand(goal) {
-		return LaneL3
+		return LaneTask
 	}
 	if laneLooksLikeResearch(goal) {
-		return LaneL3
+		return LaneTask
 	}
 	if looksLikeNovelTask(goal) {
-		return LaneL3
+		return LaneTask
 	}
 	// Any later pass over an existing deliverable — page, source, report,
-	// sheet, or slides — stays on the full tool surface. A read-only or
-	// one-step ask lane drops the write, so the model can only paste.
+	// sheet, or slides — stays on the task tier. The chat tier's small
+	// budget can only paste.
 	if laneLooksLikeArtifactRevision(goal) {
-		return LaneL3
+		return LaneTask
 	}
 	// A skill chip, or any later turn after a file was already being produced,
-	// stays on the full surface. Wording like "继续完成输出产物" or "把按钮改成蓝色"
-	// does not have to repeat 修改/覆盖.
+	// stays on the task tier. Wording like "继续完成输出产物" or "把按钮改成
+	// 蓝色" does not have to repeat 修改/覆盖.
 	if strings.Contains(goal, "[引用技能") {
-		return LaneL3
+		return LaneTask
 	}
 	if in.PriorDeliverable && !laneLooksLikeInPlaceProse(goal) {
-		return LaneL3
+		return LaneTask
 	}
-	// A page, HTML file, or POC has to be written and then run. One ask step
-	// cannot do both, so the first output stays on the full tool surface.
+	// A page, HTML file, or POC has to be written and then run. The chat
+	// tier's budget cannot do both, so the first output stays on task.
 	if fileNeedsRun(goal) || laneLooksLikeFirstFile(goal) {
-		return LaneL3
+		return LaneTask
 	}
-	materials := in.HasTurnMaterials || hasTurnMaterials(goal, false, false)
-	if laneLooksLikeOfficeDeliverable(goal) {
-		if materials {
-			return LaneL2
-		}
-		return LaneL2Ask
+	// Office deliverables (with or without materials) and vague tasks land on
+	// task (PRD maps L2/L2-ask here): the no-materials generation gate (G-301)
+	// and the ask-once gate (G-302) own the "ask first, then produce" behavior
+	// at run time. Casual prose falls through to chat.
+	if laneLooksLikeOfficeDeliverable(goal) || laneLooksLikeVagueTask(goal) {
+		return LaneTask
 	}
-	if laneLooksLikeVagueTask(goal) {
-		return LaneL2Ask
-	}
-	if laneLooksLikeInPlaceProse(goal) {
-		return LaneL1
-	}
-	return LaneL1
+	return LaneChat
 }
 
 // laneLooksLikeArtifactRevision is a follow-up that changes an existing
@@ -193,20 +221,17 @@ func revisionInstructionText(goal string) string {
 	return b.String()
 }
 
-// promoteLaneForSkillTrial keeps a draft-skill follow-up on the full tool
-// surface. The first trial message is capability work; the next sentence
-// ("改成第二版") would otherwise fall into the one-step read-only lane and
-// the model can only paste source.
+// promoteLaneForSkillTrial keeps a draft-skill follow-up on the task tier.
+// The first trial message is capability work; the next sentence ("改成第二
+// 版") would otherwise fall into the chat tier and the model can only paste.
 func promoteLaneForSkillTrial(lane ChatLane, trial bool) ChatLane {
 	if !trial {
 		return lane
 	}
-	switch lane {
-	case LaneL0, LaneL4, LaneL2, LaneL3:
+	if lane == LaneAgent {
 		return lane
-	default:
-		return LaneL3
 	}
+	return LaneTask
 }
 
 func laneLooksLikeAgentTurn(goal string) bool {
@@ -389,6 +414,13 @@ func countFactClauses(t string) int {
 	return n
 }
 
+// v2 budget baselines (PRD 4.2). The tier owns the budget plane only.
+const (
+	laneChatBudgetSteps  = 4
+	laneTaskBudgetSteps  = 12
+	laneAgentBudgetSteps = 24
+)
+
 func buildLaneContract(lane ChatLane, route TaskRoute, overlay CouncilOverlay) LaneContract {
 	c := LaneContract{Lane: lane, Route: route, Council: overlay}
 	if c.Council.MaxSteps == 0 {
@@ -397,29 +429,14 @@ func buildLaneContract(lane ChatLane, route TaskRoute, overlay CouncilOverlay) L
 	c.Council.Tools = overlay.Tools || councilToolsForLane(lane)
 	c.Council.DisableReasoning = overlay.DisableReasoning || !councilToolsForLane(lane)
 	switch lane {
-	case LaneL0, LaneL1:
+	case LaneChat:
 		c.DisableReasoning = true
-		c.SkipOfficeResearchPipeline = true
-		c.MaxMainToolSteps = 1
-	case LaneL2:
-		c.DisableReasoning = true
-		c.SkipOfficeResearchPipeline = true
-		c.AllowOfficeGen = true
-		c.MaxMainToolSteps = 8
+		c.MaxMainToolSteps = laneChatBudgetSteps
+	case LaneTask:
+		c.MaxMainToolSteps = laneTaskBudgetSteps
 		c.ContinueNudges = true
-	case LaneL2Ask:
-		c.DisableReasoning = true
-		c.SkipOfficeResearchPipeline = true
-		c.MaxMainToolSteps = 1
-	case LaneL3:
-		c.AllowWebSearch = true
-		c.AllowOfficeGen = true
-		c.MaxMainToolSteps = 24
-		c.ContinueNudges = true
-	default: // L4
-		c.AllowWebSearch = true
-		c.AllowOfficeGen = true
-		c.MaxMainToolSteps = 24
+	default: // agent
+		c.MaxMainToolSteps = laneAgentBudgetSteps
 		c.ContinueNudges = true
 	}
 	return c
@@ -443,53 +460,52 @@ func hasAsAbovePointer(t string) bool {
 
 func applyLaneOverrides(lane ChatLane, in LaneInput, route TaskRoute, overlay CouncilOverlay) (ChatLane, LaneContract) {
 	goal := chatRoutingText(in.Goal)
-	materials := in.HasTurnMaterials || hasTurnMaterials(goal, false, false)
-	if capabilityWorkTask(goal) && lane != LaneL4 && lane != LaneL0 {
-		lane = LaneL3
-	}
-	if laneLooksLikeExternalUnderstand(goal) && lane != LaneL4 && lane != LaneL0 {
-		lane = LaneL3
+	if lane != LaneAgent && lane != LaneChat {
+		// Tier-promotion overrides only push task-tier turns around; chat
+		// (greetings) and agent (desktop/media/continue) keep their tier.
+		if capabilityWorkTask(goal) || laneLooksLikeExternalUnderstand(goal) ||
+			strings.Contains(goal, "画布") || wantsDefaultCanvas(goal) ||
+			mediaGenerationKind(goal) != "" ||
+			(laneWantsForcedSearch(goal) && (laneLooksLikeOfficeDeliverable(goal) || laneLooksLikeProse(goal))) {
+			lane = LaneTask
+		}
 	}
 	if route == RouteR2 || route == RouteR3 {
-		lane = LaneL4
-	}
-	if (strings.Contains(goal, "画布") || wantsDefaultCanvas(goal)) && lane != LaneL0 && lane != LaneL4 {
-		lane = LaneL3
-	}
-	if lookupOptedOut(goal) && lane == LaneL3 {
-		if laneLooksLikeOfficeDeliverable(goal) || looksLikeNovelTask(goal) {
-			if materials {
-				lane = LaneL2
-			} else {
-				lane = LaneL2Ask
-			}
-		} else {
-			lane = LaneL1
-		}
-	}
-	if mediaGenerationKind(goal) != "" && lane != LaneL4 && lane != LaneL0 {
-		lane = LaneL3
-	}
-	if laneWantsForcedSearch(goal) && lane != LaneL4 && lane != LaneL0 {
-		if laneLooksLikeOfficeDeliverable(goal) || laneLooksLikeProse(goal) {
-			lane = LaneL3
-		}
+		lane = LaneAgent
 	}
 	c := buildLaneContract(lane, route, overlay)
-	// The semantic/flash classifier's R1 conclusion must reach the lane rescue:
-	// keyword detectors alone miss bare entities and short follow-ups.
-	if (route == RouteR1 || detectTaskRoute(goal) == RouteR1 || looksLikeCurrentLookupTurn(goal)) &&
-		lane != LaneL0 && lane != LaneL2 && lane != LaneL2Ask && lane != LaneL4 {
-		c.AllowWebSearch = true
-		if c.MaxMainToolSteps < 4 {
-			c.MaxMainToolSteps = 4
+	// A greeting turn spends no tool steps: one model call answers directly.
+	if lane == LaneChat && (strings.TrimSpace(goal) == "" || isShortIdleGreeting(goal)) {
+		c.MaxMainToolSteps = 1
+	}
+	// FR-200 budget baselines (PRD 4.5): the route (keyword or flash
+	// conclusion) may only shift the budget baseline, never the tool
+	// surface. R1→task, R2/R3→agent, R4→task, NONE/low-confidence→agent
+	// (conservative = full capability). Greeting turns keep their one-step
+	// direct reply; every other turn gets the route floor.
+	if !isShortIdleGreeting(goal) && strings.TrimSpace(goal) != "" {
+		switch {
+		case route == RouteR1 || detectTaskRoute(goal) == RouteR1 || looksLikeCurrentLookupTurn(goal):
+			if c.MaxMainToolSteps < laneTaskBudgetSteps {
+				c.MaxMainToolSteps = laneTaskBudgetSteps
+			}
+			c.ContinueNudges = true
+		case route == RouteR2 || route == RouteR3:
+			if c.MaxMainToolSteps < laneAgentBudgetSteps {
+				c.MaxMainToolSteps = laneAgentBudgetSteps
+			}
+		case route == RouteR4:
+			if c.MaxMainToolSteps < laneTaskBudgetSteps {
+				c.MaxMainToolSteps = laneTaskBudgetSteps
+			}
+		case route == RouteUnspecified:
+			if c.MaxMainToolSteps < laneAgentBudgetSteps {
+				c.MaxMainToolSteps = laneAgentBudgetSteps
+			}
+			c.ContinueNudges = true
 		}
-		c.ContinueNudges = true
 	}
-	if lookupOptedOut(goal) {
-		c.AllowWebSearch = false
-	}
-	if laneWantsDeepThink(goal) && lane != LaneL0 {
+	if laneWantsDeepThink(goal) {
 		c.DisableReasoning = false
 	}
 	return lane, c
@@ -507,17 +523,8 @@ func shouldStartOfficeResearch(c LaneContract, officeTaskID string, capabilityWo
 	if officeTaskID != "" || capabilityWork {
 		return false
 	}
-	if chatLanesEnabled() && c.SkipOfficeResearchPipeline {
-		return false
-	}
+	_ = c
 	return true
-}
-
-func laneAllowsWebSearch(c LaneContract) bool {
-	if !chatLanesEnabled() || c.Lane == "" {
-		return true
-	}
-	return c.AllowWebSearch
 }
 
 func laneAllowsContinueNudges(c LaneContract) bool {
@@ -541,7 +548,7 @@ func laneMayExtendToolLoop(lane LaneContract) bool {
 	if !chatLanesEnabled() || lane.Lane == "" {
 		return true
 	}
-	if lane.Lane == LaneL0 || lane.Lane == LaneL1 || lane.Lane == LaneL2Ask {
+	if lane.Lane == LaneChat {
 		return false
 	}
 	return lane.ContinueNudges || lane.MaxMainToolSteps >= maxToolLoopSteps
@@ -551,7 +558,7 @@ func laneAllowsDesktopContinue(c LaneContract) bool {
 	if !chatLanesEnabled() || c.Lane == "" {
 		return true
 	}
-	return c.Lane == LaneL4
+	return c.Lane == LaneAgent
 }
 
 func startOfficeWorkflowsIfNeeded(req *llmadapter.Request, turn *chatTurnCheckpoint, send func(bridge.Event) error, lane LaneContract, officeTaskID string, capabilityWork bool) {
@@ -562,87 +569,31 @@ func startOfficeWorkflowsIfNeeded(req *llmadapter.Request, turn *chatTurnCheckpo
 		turn.PptActive, turn.DocxActive = false, false
 		return
 	}
+	// v2: the workflow starters own the offline/materials routing themselves —
+	// pptGoesStraightToFile and the docx reference branch send the turn to
+	// write-from-reference mode (stage=write, no web-research pipeline
+	// prompt) while keeping the generator reachable for the auto-gen
+	// fallback. The run-time gates (G-301/G-304) own "no materials → ask or
+	// verify first" at call time.
 	if !shouldStartOfficeResearch(lane, officeTaskID, capabilityWork) {
 		turn.PptActive, turn.DocxActive = false, false
-		turn.SkipOfficeResearch = lane.SkipOfficeResearchPipeline
-		if lane.AllowOfficeGen {
-			injectReferenceOfficeOnce(req)
-		}
 		return
 	}
 	startPptWorkflow(req, turn, send)
 	startDocxWorkflow(req, turn, send)
 }
 
-func injectReferenceOfficeOnce(req *llmadapter.Request) {
-	if req == nil {
-		return
-	}
-	for _, m := range req.Messages {
-		if strings.Contains(m.Content, referenceOfficeInstruction) {
-			return
-		}
-	}
-	req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: referenceOfficeInstruction})
-}
-
+// applyLaneTools is the v2 instrumentation point between the lane contract and
+// the request tool list. FR-100: no lane may shrink the tool surface — the
+// profile full set flows through unchanged; guards live in the run-time state
+// gates. The shell is kept so future per-lane budget instrumentation has one
+// place to hook without reintroducing whitelists.
 func applyLaneTools(defs []llmadapter.ToolDefinition, c LaneContract) []llmadapter.ToolDefinition {
 	if !chatLanesEnabled() || len(defs) == 0 {
 		return defs
 	}
-	keep := map[string]bool{}
-	switch c.Lane {
-	case LaneL0:
-		return nil
-	case LaneL1:
-		for _, d := range defs {
-			if d.Name == "workspace.read" || d.Name == "office.inspect" ||
-				d.Name == "kb.search" || d.Name == "kb.cite" || d.Name == "graph.expand" ||
-				d.Name == "skill.invoke" || d.Name == "skill.try" ||
-				d.Name == "skill.catalog.list" || d.Name == "skill.list" || d.Name == "skill.install" || d.Name == "skill.publish" ||
-				d.Name == "user.ask" ||
-				strings.HasPrefix(d.Name, "office.") {
-				keep[d.Name] = true
-			}
-			if c.AllowWebSearch && (d.Name == "web.search" || d.Name == "web.fetch" ||
-				d.Name == "weather.get" || d.Name == "location.get" || d.Name == "video.understand" ||
-				d.Name == "memory.search" || d.Name == "memory.get") {
-				keep[d.Name] = true
-			}
-		}
-	case LaneL2Ask:
-		for _, d := range defs {
-			if d.Name == "user.ask" || d.Name == "todo.write" || d.Name == "kb.search" || d.Name == "kb.cite" || d.Name == "graph.expand" ||
-				d.Name == "skill.invoke" || d.Name == "skill.try" ||
-				d.Name == "skill.catalog.list" || d.Name == "skill.list" || d.Name == "skill.install" || d.Name == "skill.publish" ||
-				strings.HasPrefix(d.Name, "office.") {
-				keep[d.Name] = true
-			}
-		}
-	case LaneL2:
-		for _, d := range defs {
-			if d.Name == "web.search" || d.Name == "web.fetch" {
-				continue
-			}
-			keep[d.Name] = true
-		}
-	default:
-		return defs
-	}
-	if c.KeepSpecialistTools {
-		for _, d := range defs {
-			if specialistToolAllow[d.Name] {
-				keep[d.Name] = true
-			}
-		}
-	}
-	out := make([]llmadapter.ToolDefinition, 0, len(defs))
-	for _, d := range defs {
-		if keep[d.Name] {
-			out = append(out, d)
-		}
-	}
-	return out
+	_ = c
+	return defs
 }
 
 // checkpointWasDeliverable reports that an earlier turn in this session was
@@ -668,314 +619,6 @@ func checkpointWasDeliverable(cp chatTurnCheckpoint) bool {
 	return false
 }
 
-// restoreFileLandingTools puts write, and run when the file has to execute,
-// back onto a list that a route or a narrow lane removed. The catalog is the
-// tool list from before that stripping. In-place prose and greetings stay narrow.
-func restoreFileLandingTools(filtered, catalog []llmadapter.ToolDefinition, goal string, prior bool, lane ChatLane) []llmadapter.ToolDefinition {
-	if lane == LaneL0 || lane == "" || len(catalog) == 0 {
-		return filtered
-	}
-	write, run := false, false
-	switch lane {
-	case LaneL2, LaneL3, LaneL4:
-		write, run = true, true
-	default:
-		write, run = fileLandingNeed(goal, prior)
-	}
-	if !write && !run {
-		return narrowToolsToThisTask(filtered, catalog, goal, prior, lane)
-	}
-	want := map[string]bool{}
-	if write {
-		for _, name := range []string{
-			"workspace.write", "workspace.edit", "workspace.restore", "workspace.accept",
-			"html.gen", "docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "office.generate", "canvas.present",
-		} {
-			want[name] = true
-		}
-	}
-	if run {
-		want["workspace.write"] = true
-		want["workspace.edit"] = true
-		want["workspace.restore"] = true
-		want["workspace.accept"] = true
-		want["command.run"] = true
-		want["system.run"] = true
-		want["html.gen"] = true
-	}
-	have := map[string]bool{}
-	for _, d := range filtered {
-		have[d.Name] = true
-	}
-	if wantsDefaultCanvas(goal) {
-		for _, name := range []string{"html.gen", "docx.gen", "pptx.gen", "excel.gen", "pdf.gen", "office.generate"} {
-			delete(want, name)
-		}
-		want["canvas.present"] = true
-	}
-	for _, d := range catalog {
-		if want[d.Name] && !have[d.Name] {
-			filtered = append(filtered, d)
-			have[d.Name] = true
-		}
-	}
-	if wantsDefaultCanvas(goal) {
-		drop := map[string]bool{"html.gen": true, "docx.gen": true, "pptx.gen": true, "excel.gen": true, "pdf.gen": true, "office.generate": true}
-		kept := make([]llmadapter.ToolDefinition, 0, len(filtered))
-		for _, d := range filtered {
-			if drop[d.Name] {
-				continue
-			}
-			kept = append(kept, d)
-		}
-		filtered = kept
-	}
-	if wantsDefaultCanvas(goal) && lane != LaneL2 && lane != LaneL2Ask && !strings.Contains(goal, "[引用专家") {
-		return canvasWriteTools(filtered, catalog)
-	}
-	return narrowToolsToThisTask(filtered, catalog, goal, prior, lane)
-}
-
-// narrowToolsToThisTask drops the catalog a wide lane just put back.
-// One job keeps the tools that job uses. A list of eight or fewer that
-// did not match a job stays as the caller built it.
-func narrowToolsToThisTask(filtered, catalog []llmadapter.ToolDefinition, goal string, prior bool, lane ChatLane) []llmadapter.ToolDefinition {
-	if lane == LaneL0 || lane == "" {
-		return filtered
-	}
-	keep := toolsForThisTask(goal, lane)
-	if keep == nil {
-		if len(filtered) <= 8 {
-			return filtered
-		}
-		keep = wideFallbackKeep(goal, prior, lane)
-	}
-	return pickTaskTools(filtered, catalog, keep)
-}
-
-func toolsForThisTask(goal string, lane ChatLane) map[string]bool {
-	g := chatRoutingText(goal)
-	if g == "" || isShortIdleGreeting(g) {
-		return nil
-	}
-	if strings.Contains(goal, "[引用专家") || strings.Contains(g, "[引用专家") {
-		keep := make(map[string]bool, len(specialistToolAllow))
-		for name := range specialistToolAllow {
-			keep[name] = true
-		}
-		return keep
-	}
-	if strings.Contains(goal, openPageFileMark) || strings.Contains(g, openPageFileMark) {
-		return openPageTools(goal)
-	}
-	if _, _, ok := videounderstand.DetectShareURL(g); ok && !explicitBrowserIntent(g, strings.ToLower(g)) {
-		return map[string]bool{"video.understand": true, "web.fetch": true, "user.ask": true}
-	}
-	keep := map[string]bool{}
-	matched := false
-	add := func(names ...string) {
-		matched = true
-		for _, name := range names {
-			keep[name] = true
-		}
-	}
-	if looksLikeSkillAuthoringTask(g) || looksLikeExpertAuthoringTask(g) || capabilityWorkTask(g) || strings.Contains(g, "[引用技能") {
-		add("skill.create", "skill.invoke", "skill.try", "skill.view", "skill.manage", "workspace.read", "workspace.write", "workspace.edit", "user.ask")
-		if taskHasSeveralSteps(g) {
-			add("todo.write")
-		}
-		return keep
-	}
-	if kind := mediaGenerationKind(g); kind != "" {
-		add(kind, "user.ask")
-		return keep
-	}
-	if centerPlaybackGoal(g) {
-		add("media.play", "user.ask")
-		return keep
-	}
-	if looksLikeWeatherTurn(g) && !wantsOfficeGen(g) && !wantsDefaultCanvas(g) {
-		add("location.get", "weather.get", "user.ask")
-		return keep
-	}
-	if desktopActGoal(g) && !wantsOfficeGen(g) && !wantsDefaultCanvas(g) {
-		add("desktop.open", "desktop.type", "desktop.quit", "desktop.browse", "system.run", "computer.act", "user.ask")
-		if containsAnyFold(g, strings.ToLower(g), []string{"播放", "听歌", "放歌", "放一首", "随机播放", "来一首"}) {
-			add("media.play")
-		}
-		return keep
-	}
-	if detectTaskRoute(g) == RouteR3 && !wantsOfficeGen(g) {
-		add("browser.act", "web.fetch", "user.ask")
-		if taskHasSeveralSteps(g) {
-			add("todo.write")
-		}
-		return keep
-	}
-	office := wantsOfficeGen(g) || laneLooksLikeOfficeDeliverable(g) || looksLikeGeneratedDocument(g) || ((lane == LaneL2 || lane == LaneL2Ask) && wantsDefaultCanvas(g))
-	if office {
-		addOfficeFamily(keep, g, lane)
-		matched = true
-	}
-	lookup := (looksLikeCurrentLookupTurn(g) || inventoryLookupGoal(g)) && !office
-	if lookup {
-		add("web.search", "web.fetch", "user.ask")
-		if taskHasSeveralSteps(g) {
-			add("todo.write")
-		}
-	}
-	if codeWorkGoal(g) && !office {
-		add("workspace.read", "workspace.edit", "workspace.write", "workspace.search", "command.run", "user.ask")
-		if taskHasSeveralSteps(g) {
-			add("todo.write")
-		}
-	}
-	if !matched && laneLooksLikeInPlaceProse(g) {
-		add("user.ask")
-	}
-	if mentionsSend(g) {
-		keep["im.send"] = true
-		matched = true
-	}
-	if !matched {
-		return nil
-	}
-	keep["user.ask"] = true
-	return keep
-}
-
-func addOfficeFamily(keep map[string]bool, goal string, lane ChatLane) {
-	for _, name := range []string{
-		"user.ask", "workspace.read", "workspace.write", "workspace.edit",
-		"office.generate", "office.inspect", "office.patch", "office.deliver",
-	} {
-		keep[name] = true
-	}
-	if lane == LaneL2 || lane == LaneL2Ask {
-		keep["skill.invoke"] = true
-		keep["skill.try"] = true
-	}
-	if tool := officeGenToolForGoal(goal); tool != "" {
-		keep[tool] = true
-	} else {
-		keep["docx.gen"] = true
-	}
-	if laneLooksLikeResearch(goal) || strings.Contains(goal, "网上") || strings.Contains(goal, "新闻") || strings.Contains(goal, "公开资料") || laneWantsForcedSearch(goal) {
-		keep["web.search"] = true
-		keep["web.fetch"] = true
-	}
-	if taskHasSeveralSteps(goal) {
-		keep["todo.write"] = true
-	}
-}
-
-func openPageTools(goal string) map[string]bool {
-	keep := map[string]bool{"user.ask": true, "workspace.read": true}
-	lower := strings.ToLower(goal)
-	if userAskedToChangeOpenPage(goal) || containsAnyFold(goal, lower, []string{"改成", "换成", "修复", "调整"}) {
-		keep["workspace.edit"] = true
-		keep["workspace.write"] = true
-	}
-	if taskHasSeveralSteps(goal) {
-		keep["todo.write"] = true
-		keep["command.run"] = true
-	}
-	return keep
-}
-
-func wideFallbackKeep(goal string, prior bool, lane ChatLane) map[string]bool {
-	keep := map[string]bool{"user.ask": true}
-	if laneLooksLikeInPlaceProse(goal) || lane == LaneL1 {
-		return keep
-	}
-	// A full-surface lane that matched no known job still keeps the public
-	// web: the agent must be able to look things up instead of reporting
-	// that it has no such tool. L1 and the office lanes stay narrow on
-	// purpose — their lane filter strips the web again anyway.
-	if lane == LaneL3 || lane == LaneL4 {
-		keep["web.search"] = true
-		keep["web.fetch"] = true
-	}
-	write, run := fileLandingNeed(goal, prior)
-	if write || lane == LaneL2 || lane == LaneL2Ask || lane == LaneL3 {
-		keep["workspace.read"] = true
-		keep["workspace.write"] = true
-		keep["workspace.edit"] = true
-	}
-	if run {
-		keep["command.run"] = true
-		keep["html.gen"] = true
-	}
-	if lane == LaneL4 {
-		keep["command.run"] = true
-		keep["system.run"] = true
-	}
-	if taskHasSeveralSteps(goal) {
-		keep["todo.write"] = true
-	}
-	return keep
-}
-
-func looksLikeGeneratedDocument(goal string) bool {
-	if wantsDefaultCanvas(goal) {
-		return false
-	}
-	g := chatRoutingText(goal)
-	if !strings.Contains(g, "文档") && !strings.Contains(g, "文稿") {
-		return false
-	}
-	return strings.Contains(g, "生成") || strings.Contains(g, "写") || strings.Contains(g, "做")
-}
-
-func centerPlaybackGoal(goal string) bool {
-	g := chatRoutingText(goal)
-	lower := strings.ToLower(g)
-	if containsAnyFold(g, lower, []string{"网易云", "汽水", "notepad", "记事本"}) {
-		return false
-	}
-	if containsAnyFold(g, lower, []string{"暂停", "下一首", "上一首"}) && !ownedMediaCenterGoal(g) {
-		return false
-	}
-	if ownedMediaCenterGoal(g) {
-		return true
-	}
-	return containsAnyFold(g, lower, []string{"播放", "放首歌", "放一首", "来一首", "听歌", "我想听", "我要看", "随便放", "播个", "放歌", "播歌"})
-}
-
-func desktopActGoal(goal string) bool {
-	if looksLikeWeatherTurn(goal) {
-		return false
-	}
-	g := chatRoutingText(goal)
-	lower := strings.ToLower(g)
-	if containsAnyFold(g, lower, desktopActHints) || containsAnyFold(g, lower, namedLocalAppHints) {
-		return true
-	}
-	if strings.Contains(g, "打开") && strings.Contains(g, "桌面") && (strings.Contains(g, "文件") || strings.Contains(g, "文档")) && !strings.Contains(g, "浏览器") {
-		return true
-	}
-	if containsAnyFold(g, lower, []string{"暂停", "下一首", "上一首", "网易云", "汽水"}) {
-		return true
-	}
-	return wantsAgentHostAct(g)
-}
-
-func codeWorkGoal(goal string) bool {
-	if strings.Contains(goal, openPageFileMark) {
-		return false
-	}
-	g := chatRoutingText(goal)
-	if officeCodingVerificationTurn(g) {
-		return true
-	}
-	return containsAnyFold(g, strings.ToLower(g), []string{"bug", "编译", "代码", "函数", "脚本", "修复", "修一下", "command.run"})
-}
-
-func mentionsSend(goal string) bool {
-	g := chatRoutingText(goal)
-	return containsAnyFold(g, strings.ToLower(g), []string{"发送", "发给", "发消息", "转发"})
-}
-
 func taskHasSeveralSteps(goal string) bool {
 	g := chatRoutingText(goal)
 	return containsAnyFold(g, strings.ToLower(g), []string{"然后", "并且", "同时", "接着", "另外", "之后再", "再把", "第一步"})
@@ -990,58 +633,6 @@ func directTaskTurn(goal string) bool {
 		return false
 	}
 	return true
-}
-
-func pickTaskTools(filtered, catalog []llmadapter.ToolDefinition, keep map[string]bool) []llmadapter.ToolDefinition {
-	out := make([]llmadapter.ToolDefinition, 0, len(keep))
-	seen := map[string]bool{}
-	take := func(d llmadapter.ToolDefinition) {
-		if d.Name == "" || seen[d.Name] {
-			return
-		}
-		if keep[d.Name] || isGatewayTool(d.Name) {
-			seen[d.Name] = true
-			out = append(out, d)
-		}
-	}
-	for _, d := range filtered {
-		take(d)
-	}
-	for _, d := range catalog {
-		take(d)
-	}
-	return out
-}
-
-// canvasWriteTools is one write. A report that also carries search, desktop
-// and file tools makes a max-reasoning model plan and call them before the
-// article exists.
-func canvasWriteTools(filtered, catalog []llmadapter.ToolDefinition) []llmadapter.ToolDefinition {
-	keep := map[string]bool{"canvas.present": true, "user.ask": true}
-	out := make([]llmadapter.ToolDefinition, 0, 2)
-	seen := map[string]bool{}
-	for _, d := range append(append([]llmadapter.ToolDefinition{}, filtered...), catalog...) {
-		if !keep[d.Name] || seen[d.Name] {
-			continue
-		}
-		seen[d.Name] = true
-		out = append(out, d)
-	}
-	return out
-}
-
-func fileLandingNeed(goal string, prior bool) (write bool, run bool) {
-	g := chatRoutingText(goal)
-	if g == "" || isShortIdleGreeting(g) || laneLooksLikeInPlaceProse(g) {
-		return false, false
-	}
-	if prior || laneLooksLikeArtifactRevision(g) || strings.Contains(g, "[引用技能") || capabilityWorkTask(g) || runnableSystemRequest(g) || laneLooksLikeFirstFile(g) {
-		return true, true
-	}
-	if laneLooksLikeOfficeDeliverable(g) {
-		return true, fileNeedsRun(g)
-	}
-	return false, false
 }
 
 func fileNeedsRun(goal string) bool {

@@ -43,9 +43,9 @@ func newForcedSummaryEngine(t *testing.T) (*Engine, *appendAssistantSpy) {
 	return e, spy
 }
 
-// runForcedSummaryTurn drives one chat turn pinned to the one-step L1 lane,
-// the lane whose exhausted budget with a pending tool call used to end the
-// turn with only the canned notice.
+// runForcedSummaryTurn drives one chat turn pinned to the greeting-compressed
+// one-step chat contract, the lane whose exhausted budget with a pending tool
+// call used to end the turn with only the canned notice.
 func runForcedSummaryTurn(t *testing.T, e *Engine, a llmadapter.Adapter, userText string) string {
 	t.Helper()
 	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return a, nil })
@@ -53,7 +53,11 @@ func runForcedSummaryTurn(t *testing.T, e *Engine, a llmadapter.Adapter, userTex
 	defer cancel()
 	id := ulid.Make().String()
 	state := &streamState{cancel: cancel, state: streamRunning, sessionID: chatAttachmentSessionID}
-	state.lane = buildLaneContract(LaneL1, RouteUnspecified, CouncilOverlay{})
+	// v2: the chat baseline is 4 steps; only the greeting-compressed chat
+	// contract spends 1. Pin the compressed budget so the tool loop exhausts
+	// on the first tool call and the closing paths below stay exercised.
+	state.lane = buildLaneContract(LaneChat, RouteUnspecified, CouncilOverlay{})
+	state.lane.MaxMainToolSteps = 1
 	e.streams[id] = state
 	var text strings.Builder
 	e.runStream(ctx, id, state, provider.Provider{ID: chatAttachmentProviderID, Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://example.test", CredentialRef: "credential-ref"}, llmadapter.Request{Model: "model", Tools: engineToolDefinitions(), Messages: []llmadapter.Message{{Role: llmadapter.RoleUser, Content: userText}}}, func(ev bridge.Event) error {

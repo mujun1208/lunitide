@@ -47,9 +47,11 @@ func TestZodiacReportChainShape(t *testing.T) {
 	t.Logf("tools=%v", tools)
 	t.Logf("workflow=%s", flow)
 	t.Logf("assist=%s", typedAssistInstruction())
-	if names["web.search"] || names["docx.gen"] || names["todo.write"] || names["workspace.write"] || !names["canvas.present"] || !names["user.ask"] {
-		t.Fatalf("tools=%v", names)
+	if !names["canvas.present"] || !names["user.ask"] {
+		t.Fatalf("canvas goal lost its core tools: %v", names)
 	}
+	// v2 FR-100: web.search/docx.gen/todo.write/workspace.write stay visible
+	// on the full surface; the canvas discipline is prompt-level only.
 	if strings.Contains(flow, "web.search") || strings.Contains(flow, "docx.gen") {
 		t.Fatalf("workflow=%s", flow)
 	}
@@ -65,7 +67,9 @@ func TestUntypedPaperGoesToTheCanvas(t *testing.T) {
 		t.Fatalf("canvas clause missing: %s", got)
 	}
 	names := productToolNames(paper, false)
-	if !names["canvas.present"] || names["docx.gen"] || names["pptx.gen"] {
+	// v2 FR-100: docx.gen/pptx.gen stay visible; the canvas choice is made by
+	// the workflow clause, not by hiding document tools.
+	if !names["canvas.present"] || !names["docx.gen"] {
 		t.Fatalf("tools=%v", names)
 	}
 	word := "把这篇时间空间论证论文写成 Word"

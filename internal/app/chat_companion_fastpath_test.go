@@ -104,12 +104,13 @@ func TestCompanionAttachesFullToolset(t *testing.T) {
 	}
 	req := capturedChatRequest(t, requests)
 	want := map[string]bool{"web.fetch": false, "browser.act": false}
-	forbidden := map[string]bool{"user.ask": true, "command.run": true, "im.send": true, "desktop.open": true, "media.play": true, "computer.act": true}
+	// v2 FR-100: the only voice-specific denials are the spoken-clarify card
+	// and the raw cc.* primitives; the browser goal keeps the full surface.
 	for _, def := range req.Tools {
 		if _, ok := want[def.Name]; ok {
 			want[def.Name] = true
 		}
-		if forbidden[def.Name] {
+		if def.Name == "user.ask" || strings.HasPrefix(def.Name, "cc.") {
 			t.Fatalf("companion must not advertise %s", def.Name)
 		}
 	}

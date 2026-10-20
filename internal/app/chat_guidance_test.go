@@ -39,8 +39,8 @@ func TestInjectedGuidanceLabelsIncludesWeeklyAskLane(t *testing.T) {
 		{Role: llmadapter.RoleSystem, Content: "[内置工作流] 问缺什么"},
 		{Role: llmadapter.RoleUser, Content: "写周报"},
 	}}
-	got := injectedGuidanceLabels(req, LaneL2Ask)
-	if !strings.Contains(strings.Join(got, ","), "档位:先问缺什么") {
+	got := injectedGuidanceLabels(req, LaneTask)
+	if !strings.Contains(strings.Join(got, ","), "档位:任务") {
 		t.Fatalf("missing lane label: %v", got)
 	}
 }

@@ -247,9 +247,8 @@ func TestTypedVideoRequestExecutesPublicReaderAndReturnsActualEvidence(t *testin
 					if !routedRequestHasTool(req, "video.understand") || !strings.Contains(chatSystemView(req), "[本轮视频链接]") {
 						return llmadapter.Response{}, errors.New("video route or task instruction missing")
 					}
-					if routedRequestHasTool(req, "browser.act") || routedRequestHasTool(req, "media.play") {
-						return llmadapter.Response{}, errors.New("analysis routed to playback")
-					}
+					// v2 FR-100: browser.act/media.play stay visible on the
+					// full surface; the video-link instruction routes behavior.
 					return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{{ID: "public-video", Name: "video.understand", Arguments: json.RawMessage(`{"url":"https://www.bilibili.com/video/BVfixture"}`)}}}}, nil
 				}
 				for _, msg := range req.Messages {
@@ -376,8 +375,10 @@ func TestTypedWeeklyReportAskOmitsSearchTools(t *testing.T) {
 		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "好的，请补充本周完成和风险。"}}, nil
 	}}
 	_ = runRoutedExecution(t, e, "写周报", adapter)
-	if routedRequestHasTool(captured, "web.search") {
-		t.Fatalf("写周报 kept search: %#v", captured.Tools)
+	// v2 FR-100: the ask clause lives in the prompt, not the tool face —
+	// web.search stays visible; the model asks once and stops.
+	if !routedRequestHasTool(captured, "web.search") {
+		t.Fatalf("写周报 must keep the full surface (web.search): %#v", captured.Tools)
 	}
 	if !routedRequestHasTool(captured, "workspace.write") || !routedRequestHasTool(captured, "docx.gen") {
 		t.Fatal("写周报 must keep write and docx.gen so the file can land")
@@ -386,12 +387,12 @@ func TestTypedWeeklyReportAskOmitsSearchTools(t *testing.T) {
 	if len(captured.Messages) > 0 {
 		sys = chatSystemView(captured)
 	}
-	if !strings.Contains(sys, "问缺什么") && !strings.Contains(sys, "问完即停") {
-		t.Fatalf("missing L2-ask clause:\n%s", sys)
+	if !strings.Contains(sys, "先核实或问清缺什么") && !strings.Contains(sys, "问一句即停") {
+		t.Fatalf("missing ask-first clause:\n%s", sys)
 	}
 }
 
-func TestTypedPolishOmitsDocxGen(t *testing.T) {
+func TestTypedPolishKeepsFullSurfaceWithInPlaceClause(t *testing.T) {
 	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
 	runtime, err := toolruntime.New(t.TempDir())
 	if err != nil {
@@ -405,8 +406,10 @@ func TestTypedPolishOmitsDocxGen(t *testing.T) {
 		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "今天的会议开得很顺利，节奏清楚。"}}, nil
 	}}
 	_ = runRoutedExecution(t, e, "把这段话润色得更顺：今天开会很顺利", adapter)
-	if routedRequestHasTool(captured, "docx.gen") || routedRequestHasTool(captured, "web.search") {
-		t.Fatalf("L1 polish kept scrape/gen: %#v", captured.Tools)
+	// v2 FR-100: polish keeps docx.gen/web.search visible; in-place discipline
+	// comes from the lane prompt, and the budget stays at chat tier.
+	if !routedRequestHasTool(captured, "docx.gen") || !routedRequestHasTool(captured, "web.search") {
+		t.Fatalf("L1 polish lost the full surface: %#v", captured.Tools)
 	}
 }
 

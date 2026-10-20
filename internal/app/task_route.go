@@ -249,36 +249,10 @@ func routeAllow(route TaskRoute, ccEnabled bool) map[string]bool {
 	}
 }
 
-// applyTaskRoute shrinks defs to allow. nil allow leaves defs unchanged.
-// user.ask stays on every routed surface. todo.write stays on real tasks so a
-// typed checklist can be written; a greeting (R0) matches the minimal profile
-// and does not grow a checklist tool. kb.search / kb.cite / graph.expand already
-// on defs stay (expert mount); they are never added by the allow map.
-func applyTaskRoute(defs []llmadapter.ToolDefinition, route TaskRoute, allow map[string]bool) []llmadapter.ToolDefinition {
-	if allow == nil {
-		return defs
-	}
-	keep := copyAllow(allow)
-	keep["user.ask"] = true
-	if route != RouteR0 {
-		keep["todo.write"] = true
-	}
-	for _, d := range defs {
-		if isGatewayTool(d.Name) {
-			keep[d.Name] = true
-		}
-		switch d.Name {
-		case "kb.search", "kb.cite", "graph.expand",
-			"skill.invoke", "skill.try", "skill.view", "skill.create", "skill.manage",
-			"skill.catalog.list", "skill.list", "skill.install", "skill.publish",
-			"plan.run":
-			keep[d.Name] = true
-		}
-	}
-	return filterToolDefs(defs, keep)
-}
-
-// assembleRoutedTools mirrors chat.start: profile → companion deny → route.
+// assembleRoutedTools mirrors chat.start: profile → companion deny →
+// cc-off deny. v2 FR-100: the route (intent prediction) no longer shrinks
+// the tool list; only explicit configuration (companion voice product deny,
+// computer-control off) may remove tools.
 func assembleRoutedTools(defs []llmadapter.ToolDefinition, goal string, companion, ccEnabled bool) []llmadapter.ToolDefinition {
 	profile := toolProfileDefault
 	if !companion {
@@ -288,9 +262,17 @@ func assembleRoutedTools(defs []llmadapter.ToolDefinition, goal string, companio
 	if companion {
 		out = filterCompanionDefaultTools(out)
 	}
-	if profile == toolProfileDefault || profile == toolProfileMinimal {
-		route, allow := classifyTaskRoute(goal, companion, ccEnabled)
-		out = applyTaskRoute(out, route, allow)
+	if !ccEnabled {
+		// User configuration: computer control off denies the control
+		// primitives; the desktop opener family stays.
+		kept := make([]llmadapter.ToolDefinition, 0, len(out))
+		for _, d := range out {
+			if d.Name == "computer.act" || strings.HasPrefix(d.Name, "cc.") {
+				continue
+			}
+			kept = append(kept, d)
+		}
+		out = kept
 	}
 	return out
 }

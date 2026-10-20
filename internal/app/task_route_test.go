@@ -317,8 +317,12 @@ func TestFileOutputDemandKeepsWorkspaceToolsAcrossLanes(t *testing.T) {
 	}
 }
 
-func TestApplyTaskRoute(t *testing.T) {
+func TestRouteNeverShrinksTheToolSurface(t *testing.T) {
 	t.Parallel()
+	// v2 FR-100 (replaces TestApplyTaskRoute): the route's allow map still
+	// exists for prompt guidance, but no code path may consume it to shrink
+	// the surface. What used to be the stripping contract is now a
+	// full-surface invariant on the same scenarios.
 	all := append(engineToolDefinitions(),
 		llmadapter.ToolDefinition{Name: "computer.act"},
 		llmadapter.ToolDefinition{Name: "kb.search"},
@@ -326,16 +330,17 @@ func TestApplyTaskRoute(t *testing.T) {
 		llmadapter.ToolDefinition{Name: "plan.run"},
 	)
 	route, allow := classifyTaskRoute("北京明天天气", false, true)
-	got := applyTaskRoute(all, route, allow)
+	if route != RouteR1 {
+		t.Fatalf("route=%q want R1", route)
+	}
 	seen := map[string]bool{}
-	for _, d := range got {
+	for _, d := range all {
 		seen[d.Name] = true
 	}
-	if seen["desktop.open"] || seen["computer.act"] || seen["browser.act"] {
-		t.Fatalf("R1 leaked mutating tools: %v", seen)
-	}
-	if !seen["web.search"] || !seen["user.ask"] || !seen["todo.write"] || !seen["video.understand"] {
-		t.Fatalf("R1 dropped search/ask/steps/video.understand: %v", seen)
+	for _, name := range []string{"web.search", "user.ask", "todo.write", "video.understand", "desktop.open", "computer.act", "browser.act", "kb.search", "kb.cite"} {
+		if !seen[name] {
+			t.Fatalf("R1 surface dropped %s", name)
+		}
 	}
 	routePlay, allowPlay := classifyTaskRoute("播放七里香", false, false)
 	if routePlay != RouteR2 || allowPlay["video.understand"] {
@@ -345,39 +350,35 @@ func TestApplyTaskRoute(t *testing.T) {
 	if routeBrowse != RouteR3 || allowBrowse["video.understand"] {
 		t.Fatalf("R3 must not carry video.understand: route=%q allow=%v", routeBrowse, allowBrowse)
 	}
-	// Expert tools already on the table stay; classify itself never adds kb.search.
-	if !seen["kb.search"] || !seen["kb.cite"] {
-		t.Fatal("applyTaskRoute must preserve already-mounted kb.*")
-	}
 	if allow["kb.search"] {
 		t.Fatal("D-A7: R1 allow map must not contain kb.search")
 	}
-
-	if got := applyTaskRoute(all, RouteUnspecified, nil); len(got) != len(all) {
-		t.Fatalf("nil allow must keep the full surface: %d vs %d", len(got), len(all))
+	contract := buildLaneContract(LaneChat, RouteR1, CouncilOverlay{})
+	if got := applyLaneTools(all, contract); len(got) != len(all) {
+		t.Fatalf("lane pass must keep the full surface: %d vs %d", len(got), len(all))
 	}
 }
 
-func TestApplyTaskRouteR0MatchesMinimal(t *testing.T) {
+func TestR0StillMatchesMinimalProfile(t *testing.T) {
 	t.Parallel()
 	all := engineToolDefinitions()
-	route, allow := classifyTaskRoute("你好", false, false)
+	route, _ := classifyTaskRoute("你好", false, false)
 	if route != RouteR0 {
 		t.Fatalf("route=%q", route)
 	}
-	routed := applyTaskRoute(all, route, allow)
-	minimal := applyToolProfile(all, toolProfileMinimal)
-	if len(routed) != len(minimal) {
-		t.Fatalf("R0=%d minimal=%d", len(routed), len(minimal))
+	// v2: greetings keep the full default surface too; the chat-tier budget
+	// (not a tool cut) is what keeps the turn cheap.
+	contract := buildLaneContract(LaneChat, route, CouncilOverlay{})
+	routed := applyLaneTools(applyToolProfile(all, toolProfileDefault), contract)
+	if len(routed) == 0 {
+		t.Fatal("greeting surface must not be empty")
 	}
-	want := map[string]bool{}
-	for _, d := range minimal {
-		want[d.Name] = true
-	}
+	seen := map[string]bool{}
 	for _, d := range routed {
-		if !want[d.Name] {
-			t.Fatalf("R0 extra %s", d.Name)
-		}
+		seen[d.Name] = true
+	}
+	if !seen["web.search"] || !seen["user.ask"] {
+		t.Fatalf("greeting keeps the full surface, got %v", seen)
 	}
 }
 
@@ -389,22 +390,25 @@ func TestAssembleRoutedToolsCompanionWeather(t *testing.T) {
 	for _, d := range got {
 		seen[d.Name] = true
 	}
-	if seen["command.run"] || seen["im.send"] {
-		t.Fatal("companion deny must still apply")
+	if seen["user.ask"] {
+		t.Fatal("companion voice must clarify aloud instead of parking a choice card")
 	}
-	if seen["computer.act"] || seen["desktop.open"] {
-		t.Fatal("companion R1 must not keep desktop/computer.act")
-	}
+	// v2 FR-100: the companion deny is the only intent-free product deny left
+	// (spoken clarify + raw cc primitives); the weather goal keeps the rest
+	// of the surface (misrouting costs budget, not capability).
 	if !seen["web.search"] || !seen["kb.search"] {
 		t.Fatalf("expected search + mounted kb: %v", seen)
 	}
 }
 
-func TestApplyTaskRouteKeepsSkillTry(t *testing.T) {
+func TestRouteKeepsSkillTryOnSurface(t *testing.T) {
 	t.Parallel()
+	// v2 FR-100: skill.try survives by construction — the surface is never
+	// shrunk. The contract test pins the invariant on the R1 scenario.
 	all := append(engineToolDefinitions(), llmadapter.ToolDefinition{Name: "skill.try"})
-	route, allow := classifyTaskRoute("北京明天天气", false, false)
-	got := applyTaskRoute(all, route, allow)
+	route, _ := classifyTaskRoute("北京明天天气", false, false)
+	contract := buildLaneContract(LaneChat, route, CouncilOverlay{})
+	got := applyLaneTools(all, contract)
 	seen := false
 	for _, d := range got {
 		if d.Name == "skill.try" {
@@ -412,7 +416,7 @@ func TestApplyTaskRouteKeepsSkillTry(t *testing.T) {
 		}
 	}
 	if !seen {
-		t.Fatal("applyTaskRoute must keep skill.try")
+		t.Fatal("full surface must keep skill.try")
 	}
 }
 
@@ -440,8 +444,9 @@ func officeStudioToolDefs() []llmadapter.ToolDefinition {
 }
 
 func routedLaneToolNames(goal string) map[string]bool {
-	route, allow := classifyTaskRoute(goal, false, false)
-	got := applyTaskRoute(officeStudioToolDefs(), route, allow)
+	// v2: routing keeps the studio catalog whole; lanes only shift budget.
+	route, _ := classifyTaskRoute(goal, false, false)
+	got := officeStudioToolDefs()
 	in := LaneInput{Goal: goal}
 	lane := classifyChatLane(in)
 	_, contract := applyLaneOverrides(lane, in, route, CouncilOverlay{})
@@ -456,10 +461,10 @@ func TestWeeklyReportChatPipelineKeepsOfficeGenerate(t *testing.T) {
 	t.Parallel()
 	seen := routedLaneToolNames("写周报")
 	if !seen["office.generate"] || !seen["user.ask"] || !seen["skill.invoke"] {
-		t.Fatalf("写周报 L2-ask pipeline dropped studio tools: %v", seen)
+		t.Fatalf("写周报 task pipeline dropped studio tools: %v", seen)
 	}
-	if seen["docx.gen"] || seen["web.search"] {
-		t.Fatalf("写周报 L2-ask must not keep scrape/docx after lanes: %v", seen)
+	if !seen["docx.gen"] || !seen["web.search"] {
+		t.Fatalf("写周报 must keep docx.gen/web.search on the full surface: %v", seen)
 	}
 }
 
@@ -471,16 +476,17 @@ func TestGenerateWordNewsPipelineKeepsReadAndOfficeGenerate(t *testing.T) {
 	}
 }
 
-func TestApplyTaskRouteKeepsSkillTryOnWeeklyR4(t *testing.T) {
+func TestRouteR4KeepsSkillTryOnFullSurface(t *testing.T) {
 	t.Parallel()
-	route, allow := classifyTaskRoute("写周报", false, false)
-	got := applyTaskRoute(officeStudioToolDefs(), route, allow)
+	route, _ := classifyTaskRoute("写周报", false, false)
+	got := officeStudioToolDefs()
+	contract := buildLaneContract(LaneTask, route, CouncilOverlay{})
 	seen := map[string]bool{}
-	for _, d := range got {
+	for _, d := range applyLaneTools(got, contract) {
 		seen[d.Name] = true
 	}
 	if !seen["skill.try"] || !seen["office.generate"] {
-		t.Fatalf("R4 must keep skill.try and office.generate: %v", seen)
+		t.Fatalf("R4 full surface must keep skill.try and office.generate: %v", seen)
 	}
 }
 

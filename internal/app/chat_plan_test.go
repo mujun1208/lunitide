@@ -94,7 +94,7 @@ func (a *planStepRetryAdapter) Discover(context.Context, []byte) (llmadapter.Dis
 func TestPlanStepRetriesAFailedRound(t *testing.T) {
 	e := newSubagentChatEngine(t)
 	adapter := &planStepRetryAdapter{}
-	out := e.executePlanStep(context.Background(), adapter, nil, "model-x", subTestSession, executionModeApproval, "write the script", planStep{Action: "write", Detail: "self-test"}, 1, 3, RouteUnspecified, nil)
+	out := e.executePlanStep(context.Background(), adapter, nil, "model-x", subTestSession, executionModeApproval, "write the script", planStep{Action: "write", Detail: "self-test"}, 1, 3)
 	if adapter.calls != 2 || !strings.Contains(out, "wrote the file") {
 		t.Fatalf("calls=%d out=%s", adapter.calls, out)
 	}
@@ -104,7 +104,7 @@ func TestPlanStepRecordsReceiptWithoutAutoApprove(t *testing.T) {
 	e := newSubagentChatEngine(t)
 	store := &memToolOps{}
 	e.SetToolOperationStore(store)
-	out := e.executePlanStep(context.Background(), &planStepToolAdapter{}, nil, "model-x", subTestSession, executionModeApproval, "inspect", planStep{Action: "write", Detail: "do not write"}, 1, 1, RouteUnspecified, nil)
+	out := e.executePlanStep(context.Background(), &planStepToolAdapter{}, nil, "model-x", subTestSession, executionModeApproval, "inspect", planStep{Action: "write", Detail: "do not write"}, 1, 1)
 	if !strings.Contains(out, "approval required") && !strings.Contains(out, "step outcome") {
 		// The tool error is fed back to the model; the receipt is the contract.
 		t.Log(out)
@@ -309,13 +309,17 @@ func TestPlanVerifyUsesFlashWhenVendorHasPlusAndFlash(t *testing.T) {
 	}
 }
 
-func TestPlanStepToolsInheritRoute(t *testing.T) {
+func TestPlanStepToolsKeepFullSurface(t *testing.T) {
+	// v2 FR-100: plan steps run on the profile full surface; the parent
+	// route no longer narrows them (same-class fix with chat.start).
 	e := NewEngine(nil, "test")
-	got := planStepTools(e, executionModeApproval, RouteR1, nil)
+	got := planStepTools(e, executionModeApproval)
+	seen := map[string]bool{}
 	for _, d := range got {
-		if d.Name == "computer.act" || d.Name == "desktop.open" {
-			t.Fatalf("R1 plan step leaked %s", d.Name)
-		}
+		seen[d.Name] = true
+	}
+	if !seen["user.ask"] {
+		t.Fatalf("plan steps lost user.ask: %v", seen)
 	}
 }
 
@@ -325,16 +329,13 @@ func TestPlanStepToolsKeepsMergedOfficeAllow(t *testing.T) {
 	if route != RouteR1 || !allow["office.generate"] {
 		t.Fatalf("route=%q allow office.generate=%v", route, allow["office.generate"])
 	}
-	got := planStepTools(e, executionModeApproval, route, allow)
+	got := planStepTools(e, executionModeApproval)
 	seen := map[string]bool{}
 	for _, d := range got {
 		seen[d.Name] = true
 	}
 	if !seen["office.generate"] || !seen["workspace.read"] || !seen["web.search"] {
 		t.Fatalf("merged R1+R4 plan tools missing studio/read/search: %v", seen)
-	}
-	if seen["desktop.open"] || seen["computer.act"] {
-		t.Fatalf("negated-open plan must not keep desktop/computer.act: %v", seen)
 	}
 }
 

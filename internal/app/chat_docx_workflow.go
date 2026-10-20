@@ -586,7 +586,12 @@ func startDocxWorkflow(req *llmadapter.Request, turn *chatTurnCheckpoint, send f
 	}
 	turn.DocxActive = true
 	turn.DocxKind = kind
-	if lookupOptedOut(turn.Goal) || referenceOnlyOfficeTurn(turn.Goal) {
+	// v2: write-from-reference when the user opted out of the web, referenced
+	// existing material, or actually provided materials this turn. Research
+	// only runs when there is nothing to write from (G-301/G-304 own the
+	// no-materials case at call time).
+	if lookupOptedOut(turn.Goal) || referenceOnlyOfficeTurn(turn.Goal) ||
+		hasTurnMaterials(turn.Goal, false, false) {
 		turn.DocxStage = docxStageWrite
 		req.Messages = append(req.Messages, llmadapter.Message{Role: llmadapter.RoleSystem, Content: referenceOfficeInstruction})
 		return

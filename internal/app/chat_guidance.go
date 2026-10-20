@@ -31,18 +31,12 @@ func logInjectedGuidance(sessionID string, companion bool, req llmadapter.Reques
 
 func laneGuidanceLabel(lane ChatLane) string {
 	switch lane {
-	case LaneL0:
-		return "档位:寒暄"
-	case LaneL1:
+	case LaneChat:
 		return "档位:对话"
-	case LaneL2:
-		return "档位:已有材料"
-	case LaneL2Ask:
-		return "档位:先问缺什么"
-	case LaneL3:
-		return "档位:调研"
-	case LaneL4:
-		return "档位:操作"
+	case LaneTask:
+		return "档位:任务"
+	case LaneAgent:
+		return "档位:代理"
 	default:
 		return ""
 	}

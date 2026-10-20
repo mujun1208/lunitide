@@ -297,7 +297,7 @@ func TestDesktopLadderStreamCCOffSpeaksSettings(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	state := &streamState{cancel: cancel, state: streamRunning, taskRoute: RouteR2, companion: true, lane: LaneContract{Lane: LaneL4, ContinueNudges: true, MaxMainToolSteps: maxToolLoopSteps}}
+	state := &streamState{cancel: cancel, state: streamRunning, taskRoute: RouteR2, companion: true, lane: LaneContract{Lane: LaneAgent, ContinueNudges: true, MaxMainToolSteps: maxToolLoopSteps}}
 	e.streams["stream-ladder-cc-off"] = state
 	var mu sync.Mutex
 	var visible strings.Builder
@@ -431,7 +431,7 @@ func TestDesktopLadderStreamFailedPlayObservesThenGUI(t *testing.T) {
 			}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			state := &streamState{cancel: cancel, state: streamRunning, taskRoute: RouteR2, companion: companion, lane: LaneContract{Lane: LaneL4, ContinueNudges: true, MaxMainToolSteps: maxToolLoopSteps}}
+			state := &streamState{cancel: cancel, state: streamRunning, taskRoute: RouteR2, companion: companion, lane: LaneContract{Lane: LaneAgent, ContinueNudges: true, MaxMainToolSteps: maxToolLoopSteps}}
 			id := "stream-ladder"
 			if companion {
 				id += "-voice"
@@ -568,7 +568,7 @@ func TestDesktopLadderStreamNamedClickSuccessStops(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	state := &streamState{cancel: cancel, state: streamRunning, taskRoute: RouteR2, companion: true, lane: LaneContract{Lane: LaneL4, ContinueNudges: true, MaxMainToolSteps: maxToolLoopSteps}}
+	state := &streamState{cancel: cancel, state: streamRunning, taskRoute: RouteR2, companion: true, lane: LaneContract{Lane: LaneAgent, ContinueNudges: true, MaxMainToolSteps: maxToolLoopSteps}}
 	e.streams["stream-ladder-success"] = state
 	var mu sync.Mutex
 	var visible strings.Builder

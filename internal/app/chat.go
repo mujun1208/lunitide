@@ -1083,6 +1083,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		if state.prevWasToolGoal && !prev.ToolFailed && len(prev.LastTools) > 0 {
 			state.prevSuccessfulTools = 1
 		}
+		state.mediaSessionActive = mediaSessionFromCheckpoint(prev)
 	}
 	e.streams[streamID] = state
 	e.streamsMu.Unlock()
@@ -1105,20 +1106,16 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		req.Tools = turnTools
 		if len(p.TrialSkillIDs) == 0 && (turnProfile == toolProfileDefault || turnProfile == toolProfileMinimal) {
 			ccOn := e.computerControlEnabled()
-			route, allow := classifyTaskRouteApps(laneIn.Goal, p.Companion, ccOn, routingApps)
+			route, _ := classifyTaskRouteApps(laneIn.Goal, p.Companion, ccOn, routingApps)
 			if route == RouteUnspecified {
-				if flashRoute, flashAllow, used := e.tryFlashClassifyWith(ctx, laneIn.Goal, routingApps, ccOn); used {
-					route, allow = flashRoute, flashAllow
+				if flashRoute, _, used := e.tryFlashClassifyWith(ctx, laneIn.Goal, routingApps, ccOn); used {
+					route = flashRoute
 				}
 			}
-			// A lookup-intent follow-up misread as R2/R3 loses web.search to the
-			// route whitelist and the turn ends with no search channel at all.
-			if lookupFollowUpOverridesRoute(route, laneIn.Goal, routingApps) {
-				route, allow = RouteR1, routeAllow(RouteR1, ccOn)
-			}
-			req.Tools = applyTaskRoute(req.Tools, route, allow)
+			// v2 first principle: an intent prediction (keyword or flash) may
+			// never shrink the tool surface. req.Tools stays the profile full
+			// set; the route only feeds prompt guidance and the budget baseline.
 			state.taskRoute = route
-			state.taskAllow = allow
 			if route == RouteR2 && !desktopInstructionAdded && !imageAnswerOnly {
 				// Late (flash) desktop route: the system prompt was built
 				// before we knew. Add the execution contract now so the
@@ -1146,7 +1143,6 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 			councilCfg.Tools = councilToolsForLane(lane)
 		}
 		if expertWork {
-			contract.KeepSpecialistTools = true
 			if contract.MaxMainToolSteps < 8 {
 				contract.MaxMainToolSteps = 8
 			}
@@ -1157,7 +1153,9 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		if len(p.TrialSkillIDs) > 0 && contract.MaxMainToolSteps < 8 {
 			contract.MaxMainToolSteps = 8
 		}
-		req.Tools = restoreFileLandingTools(applyLaneTools(req.Tools, contract), turnTools, laneIn.Goal, laneIn.PriorDeliverable, contract.Lane)
+		// v2 FR-100: lanes own the budget plane only. applyLaneTools is an
+		// identity pass kept as the single instrumentation point; no whitelist.
+		req.Tools = applyLaneTools(req.Tools, contract)
 		req.DisableReasoning = contract.DisableReasoning || isShortIdleGreeting(intent.Text)
 		state.lane = contract
 	}

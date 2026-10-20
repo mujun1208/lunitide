@@ -50,9 +50,9 @@ func TestUnfinishedToolBudgetContinuesAndCapabilityWorkEarnsSteps(t *testing.T) 
 	if turnAdmitsUnfinishedToolBudget("任务已完成，文件在对话文件夹里") {
 		t.Fatal("finished turn must not start another round")
 	}
-	lane := buildLaneContract(LaneL1, RouteUnspecified, CouncilOverlay{})
+	lane := buildLaneContract(LaneChat, RouteUnspecified, CouncilOverlay{})
 	if !turnMayEarnMoreSteps(false, false, "试用技能: POC 快速构建", lane) {
-		t.Fatal("skill trial on a one-step lane cannot continue")
+		t.Fatal("skill trial on a chat-tier lane cannot continue")
 	}
 }
 
@@ -573,7 +573,10 @@ func TestRunStreamTypedPromiseTriggersHostToolFallback(t *testing.T) {
 	}
 }
 
-func TestRunStreamL2AskDoesNotAutoWebSearch(t *testing.T) {
+func TestRunStreamOfficeAskFirstDoesNotAutoWebSearch(t *testing.T) {
+	// v2: an office deliverable without materials is an ask-first turn
+	// (G-301/G-302) — the auto web-search ladder must not interrupt it with
+	// a lookup the user never asked for.
 	adapter := &waitPromiseAdapter{}
 	e := NewEngineWithGateway(nil, "test", streamTestLease{})
 	e.SetAdapterFactoryForTest(func(context.Context, provider.Provider) (llmadapter.Adapter, error) { return adapter, nil })
@@ -582,9 +585,9 @@ func TestRunStreamL2AskDoesNotAutoWebSearch(t *testing.T) {
 	state := &streamState{
 		cancel: cancel,
 		state:  streamRunning,
-		lane:   buildLaneContract(LaneL2Ask, RouteR4, CouncilOverlay{}),
+		lane:   buildLaneContract(LaneTask, RouteR4, CouncilOverlay{}),
 	}
-	id := "stream-l2ask-no-search"
+	id := "stream-askfirst-no-search"
 	e.streams[id] = state
 	done := make(chan struct{})
 	toolStarts := 0
@@ -592,7 +595,7 @@ func TestRunStreamL2AskDoesNotAutoWebSearch(t *testing.T) {
 		Model:            "m",
 		DisableReasoning: true,
 		Tools:            []llmadapter.ToolDefinition{{Name: "web.search"}},
-		Messages:         []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "今天合肥的天气怎么样"}},
+		Messages:         []llmadapter.Message{{Role: llmadapter.RoleUser, Content: "写周报"}},
 	}
 	e.runStream(ctx, id, state, provider.Provider{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Protocol: provider.ProtocolOpenAICompatible, BaseURL: "https://api.example.com", CredentialRef: "credential-ref"}, req, func(event bridge.Event) error {
 		if event.Type == bridge.EventToolStarted && event.Tool != nil && event.Tool.Name == "web.search" {
@@ -606,10 +609,10 @@ func TestRunStreamL2AskDoesNotAutoWebSearch(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for L2-ask closeout")
+		t.Fatal("timed out waiting for ask-first closeout")
 	}
 	if toolStarts != 0 {
-		t.Fatalf("L2-ask must not auto-inject web.search, starts=%d", toolStarts)
+		t.Fatalf("office ask-first must not auto-inject web.search, starts=%d", toolStarts)
 	}
 }
 
