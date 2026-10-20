@@ -1051,7 +1051,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					if stateGatesEnabled() && continueKind == "" && !settledNow && len(turn.LastTools) == 0 &&
 						state.lane.Lane != LaneChat &&
 						step+1 >= toolLoopLimit && toolLoopLimit < maxToolLoopSteps && turn.Escalations < 2 &&
-						strings.TrimSpace(turn.Goal) != "" && !state.companion {
+						strings.TrimSpace(turn.Goal) != "" && !state.companion && state.signals.ToolFailures < 4 {
 						if promoteLaneBudget(&state.lane, &turn.Escalations) {
 							toolLoopLimit = state.lane.MaxMainToolSteps
 							continueKind = "escalated"
@@ -1299,7 +1299,20 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						autoMediaPlayDone = true
 					}
 				}
-				parallelFutures := startParallelToolFutures(op, e, mode, sessionID, result.Message.ToolCalls)
+				// FR-300 G-308 pre-check: a call the stop-loss would deny must
+				// not be pre-started on a parallel goroutine — the parallel
+				// path runs before the per-call gate table, and executing a
+				// broken channel's retry is the exact waste the stop-loss
+				// exists to prevent. The per-call gate below still owns the
+				// user-visible denial and the structured reason.
+				parallelEligible := make([]llmadapter.ToolCall, 0, len(result.Message.ToolCalls))
+				for _, call := range result.Message.ToolCalls {
+					if g308WouldDeny(state.signals, call.Name) {
+						continue
+					}
+					parallelEligible = append(parallelEligible, call)
+				}
+				parallelFutures := startParallelToolFutures(op, e, mode, sessionID, parallelEligible)
 				// Early returns below (duplicate call ID, invalid args, send
 				// failures) must not abandon pre-started spawn goroutines:
 				// drain unconsumed futures when the callback exits. The
@@ -1996,9 +2009,10 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 				for _, call := range result.Message.ToolCalls {
 					turn.LastTools = append(turn.LastTools, call.Name)
 					// FR-300: fold call outcomes into the signal state
-					// (file-just-opened, web evidence) for the next gate
-					// evaluations.
-					updateSignalsAfterTool(&state.signals, call.Name, call.Arguments, lastToolOutput(req.Messages))
+					// (file-just-opened, web evidence, G-308 failure counts)
+					// for the next gate evaluations. Match by call ID so
+					// parallel calls each fold their own result.
+					updateSignalsAfterTool(&state.signals, call.Name, call.Arguments, toolOutputFor(req.Messages, call.ID))
 				}
 				if draft := strings.TrimSpace(assistantText.String()); draft != "" {
 					turn.PersistDraft = draft

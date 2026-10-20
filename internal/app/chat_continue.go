@@ -445,6 +445,21 @@ func lastToolOutput(messages []llmadapter.Message) string {
 	return ""
 }
 
+// toolOutputFor returns the RoleTool content for one specific call. Parallel
+// tool calls each get their own result; lastToolOutput would smear the last
+// result across all of them and corrupt the G-308 failure fold.
+func toolOutputFor(messages []llmadapter.Message, callID string) string {
+	if callID == "" {
+		return lastToolOutput(messages)
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == llmadapter.RoleTool && messages[i].ToolCallID == callID {
+			return messages[i].Content
+		}
+	}
+	return ""
+}
+
 func lastNamedToolArguments(messages []llmadapter.Message, name string) json.RawMessage {
 	for i := len(messages) - 1; i >= 0; i-- {
 		m := messages[i]

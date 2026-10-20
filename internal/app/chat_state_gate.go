@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"log"
+	"strconv"
 	"strings"
 
 	"github.com/lunitide/lunitide/internal/llmadapter"
@@ -42,13 +43,20 @@ type stateSignals struct {
 	// LookupIntentLowConfidence: flash said NONE or the route is unspecified
 	// — budget baselines go conservative (FR-200 already handles it).
 	LookupIntentLowConfidence bool
+	// ToolFailures: total failed tool calls this turn (ok:false results).
+	// G-308's total stop-loss arms at 4.
+	ToolFailures int
+	// LastFailedTool / LastFailStreak: the tool failing most recently and
+	// how many times in a row. G-308 blocks its 3rd retry.
+	LastFailedTool string
+	LastFailStreak int
 }
 
 // collectTurnSignals gathers the turn-start signals (PRD 4.3). Called once
 // per turn; the run loop folds call-time states in as the turn progresses.
 func collectTurnSignals(goal string, route TaskRoute, mediaSessionActive bool) stateSignals {
 	return stateSignals{
-		HasMaterials:    hasTurnMaterials(goal, false, false),
+		HasMaterials:        hasTurnMaterials(goal, false, false),
 		TicketQueryNoSource: inventoryLookupBlocksPublicWeb(goal),
 		MediaContinueAction: mediaSessionContinueGoal(goal, mediaSessionActive),
 		// GenerationRequested/FileJustOpened/BudgetNearExhausted are
@@ -168,6 +176,20 @@ type gateDecision struct {
 	Notice string
 }
 
+// g308WouldDeny reports whether the G-308 stop-loss alone would deny this
+// call. The parallel pre-start path runs before the per-call gate table;
+// checking the stop-loss there keeps a denied retry from actually executing
+// on a background goroutine (the per-call G-301..G-306 denials are policy
+// refusals on read-only calls — pre-starting them wastes at most one lookup,
+// but a G-308 denial means the channel is broken, so executing it is exactly
+// the waste the stop-loss exists to prevent).
+func g308WouldDeny(sig stateSignals, toolName string) bool {
+	if toolName == "user.ask" {
+		return false
+	}
+	return sig.ToolFailures >= 4 || (sig.LastFailStreak >= 2 && toolName == sig.LastFailedTool)
+}
+
 // evalToolGate evaluates the ordered rule table (G-301..G-306) before a
 // tool call. First hit wins; the rules are mutually exclusive by design
 // (G-301 skips report tasks — G-304 owns them). G-307 is a budget cap, not
@@ -228,6 +250,28 @@ func evalToolGate(sig stateSignals, goal string, toolName string, args json.RawM
 			Reason: "ok:false\n[闸口 G-306 续播走会话] 这是媒体会话控制（暂停/切歌/继续），直接用 media.play 的 action，不要抽歌名去搜索。",
 			Notice: "【闸口 G-306】续播直接走媒体会话，不搜索。",
 		}
+	// G-308 channel-failure stop-loss (total): the turn is drowning in
+	// failures — likely an environment fault (dead system proxy, offline).
+	// Only user.ask stays legal; everything else must answer from what the
+	// turn already has. This is what keeps a broken web stack from burning
+	// the full agent-tier budget on retries.
+	case sig.ToolFailures >= 4 && toolName != "user.ask":
+		return gateDecision{
+			GateID: "G-308",
+			Deny:   true,
+			Reason: "ok:false\n[闸口 G-308 通道故障止损] 本轮工具已累计失败 " + strconv.Itoa(sig.ToolFailures) + " 次，疑似环境故障（如系统代理不可用、断网）。停止调用工具：基于已有信息直接回答用户；信息不足时，明确告诉用户哪个通道故障，请用户检查网络或代理设置。",
+			Notice: "【闸口 G-308】工具多次失败已止损：基于已有信息回答，并告知用户疑似环境故障。",
+		}
+	// G-308 channel-failure stop-loss (per tool): the same tool just failed
+	// twice in a row — a third blind retry is a waste. Switching channels
+	// (a different tool) stays legal.
+	case sig.LastFailStreak >= 2 && toolName == sig.LastFailedTool && toolName != "user.ask":
+		return gateDecision{
+			GateID: "G-308",
+			Deny:   true,
+			Reason: "ok:false\n[闸口 G-308 单通道止损] 工具 " + toolName + " 已连续失败 " + strconv.Itoa(sig.LastFailStreak) + " 次，该通道疑似故障。不要再次调用它：改用其他工具通道，或基于已有信息直接回答；无法继续时明确告知用户故障情况。",
+			Notice: "【闸口 G-308】工具 " + toolName + " 连续失败已止损：换通道或直接回答。",
+		}
 	}
 	return gateDecision{}
 }
@@ -235,11 +279,12 @@ func evalToolGate(sig stateSignals, goal string, toolName string, args json.RawM
 // journalGate writes the interception record (PRD 4.4): gate id, signal
 // snapshot, tool name. The unified audit consumer reads these lines.
 func journalGate(streamID, gateID, toolName string, sig stateSignals) {
-	log.Printf("chat.gate stream=%s gate=%s tool=%s signals=materials:%t,gen:%t,council:%t,fileOpen:%t,media:%t,ticket:%t,budget:%t,lowConf:%t",
+	log.Printf("chat.gate stream=%s gate=%s tool=%s signals=materials:%t,gen:%t,council:%t,fileOpen:%t,media:%t,ticket:%t,budget:%t,lowConf:%t,failures:%d,lastFail:%s/%d",
 		streamID, gateID, toolName,
 		sig.HasMaterials, sig.GenerationRequested, sig.CouncilMountedGE2,
 		sig.FileJustOpened, sig.MediaContinueAction, sig.TicketQueryNoSource,
-		sig.BudgetNearExhausted, sig.LookupIntentLowConfidence)
+		sig.BudgetNearExhausted, sig.LookupIntentLowConfidence,
+		sig.ToolFailures, sig.LastFailedTool, sig.LastFailStreak)
 }
 
 // gateOfficePipelineOwns reports whether the office pipeline's own stage
@@ -251,10 +296,29 @@ func gateOfficePipelineOwns(turn *chatTurnCheckpoint) bool {
 }
 
 // updateSignalsAfterTool folds a completed tool call into the signal state.
-// Called once per successful tool completion.
+// Called once per tool completion (success or failure — the output's
+// ok:false prefix marks failures).
 func updateSignalsAfterTool(sig *stateSignals, name string, args json.RawMessage, output string) {
 	if sig == nil {
 		return
+	}
+	// FR-300 G-308 fold: count failures and track the failing streak. A
+	// later success of the same tool clears its streak; a different tool's
+	// outcome leaves the streak untouched. Gate denials ("ok:false\n[闸口")
+	// are refusals, not faults — they must not pollute the failure count.
+	out := strings.TrimSpace(output)
+	failed := strings.HasPrefix(out, "ok:false") && !strings.HasPrefix(out, "ok:false\n[闸口")
+	if failed {
+		sig.ToolFailures++
+		if sig.LastFailedTool == name {
+			sig.LastFailStreak++
+		} else {
+			sig.LastFailedTool = name
+			sig.LastFailStreak = 1
+		}
+	} else if name == sig.LastFailedTool && !strings.HasPrefix(out, "ok:false") {
+		sig.LastFailedTool = ""
+		sig.LastFailStreak = 0
 	}
 	switch {
 	case name == "desktop.open" && !strings.Contains(strings.ToLower(output), "ok:false"):
@@ -265,8 +329,11 @@ func updateSignalsAfterTool(sig *stateSignals, name string, args json.RawMessage
 		// Any write invalidates the "just opened, done" state.
 		sig.FileJustOpened = false
 	case name == "web.search" || name == "web.fetch":
-		// Web evidence collected: write-from-verified is legal now.
-		sig.HasMaterials = true
+		// Web evidence collected: write-from-verified is legal now. Only a
+		// real success counts — a failed lookup must not fake materials.
+		if !strings.HasPrefix(strings.TrimSpace(output), "ok:false") {
+			sig.HasMaterials = true
+		}
 	}
 	_ = args
 }

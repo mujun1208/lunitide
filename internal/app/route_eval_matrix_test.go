@@ -273,6 +273,15 @@ func TestToolGateRuleTable(t *testing.T) {
 		{name: "g305-ticket-fetch", sig: stateSignals{TicketQueryNoSource: true}, goal: "查余票", tool: "web.fetch", wantGate: "G-305"},
 		// G-306: media continue must not search.
 		{name: "g306-media-continue", sig: stateSignals{MediaContinueAction: true}, goal: "下一首", tool: "web.search", wantGate: "G-306"},
+		// G-308 per-tool stop-loss: same tool failed twice in a row → the
+		// third retry is denied; switching channels stays legal.
+		{name: "g308-same-tool-streak", sig: stateSignals{LastFailedTool: "web.search", LastFailStreak: 2}, goal: "北京支点互动科技有限公司", tool: "web.search", wantGate: "G-308"},
+		{name: "g308-switch-channel-ok", sig: stateSignals{LastFailedTool: "web.search", LastFailStreak: 2}, goal: "北京支点互动科技有限公司", tool: "web.fetch", wantGate: ""},
+		{name: "g308-streak-below-threshold", sig: stateSignals{LastFailedTool: "web.search", LastFailStreak: 1}, goal: "查一下", tool: "web.search", wantGate: ""},
+		// G-308 total stop-loss: 4+ failures this turn → only user.ask stays.
+		{name: "g308-total-stoploss", sig: stateSignals{ToolFailures: 4}, goal: "继续查询", tool: "command.run", wantGate: "G-308"},
+		{name: "g308-total-ask-exempt", sig: stateSignals{ToolFailures: 4}, goal: "继续查询", tool: "user.ask", wantGate: ""},
+		{name: "g308-total-below-threshold", sig: stateSignals{ToolFailures: 3}, goal: "继续查询", tool: "web.search", wantGate: ""},
 		// Gates never touch non-gated tools.
 		{name: "no-gate-on-ask", goal: "写周报", tool: "user.ask", wantGate: ""},
 		{name: "no-gate-on-search", goal: "写一份行业分析报告", tool: "web.search", wantGate: ""},
@@ -345,9 +354,41 @@ func TestSignalsFoldAfterTool(t *testing.T) {
 	if sig.FileJustOpened {
 		t.Fatal("a write invalidates FileJustOpened")
 	}
+	// G-308 fold: a real failure counts once, names the tool, arms the streak.
 	updateSignalsAfterTool(&sig, "web.search", nil, "ok:false\nno results")
+	if sig.HasMaterials {
+		t.Fatal("a failed lookup must not fake materials")
+	}
+	if sig.ToolFailures != 1 || sig.LastFailedTool != "web.search" || sig.LastFailStreak != 1 {
+		t.Fatalf("after 1st failure: failures=%d last=%q streak=%d, want 1/web.search/1", sig.ToolFailures, sig.LastFailedTool, sig.LastFailStreak)
+	}
+	// Second consecutive failure of the same tool grows the streak.
+	updateSignalsAfterTool(&sig, "web.search", nil, "ok:false\ntimeout")
+	if sig.ToolFailures != 2 || sig.LastFailStreak != 2 {
+		t.Fatalf("after 2nd failure: failures=%d streak=%d, want 2/2", sig.ToolFailures, sig.LastFailStreak)
+	}
+	// Gate denials are refusals, not faults — neither count nor clear.
+	updateSignalsAfterTool(&sig, "web.search", nil, "ok:false\n[闸口 G-305 实时票务未接入] 不要用网页数据冒充。")
+	if sig.ToolFailures != 2 || sig.LastFailStreak != 2 {
+		t.Fatalf("gate denial must not fold as failure: failures=%d streak=%d, want 2/2", sig.ToolFailures, sig.LastFailStreak)
+	}
+	// A different tool failing switches the tracked tool and resets the streak.
+	updateSignalsAfterTool(&sig, "command.run", nil, "ok:false\nexit 1")
+	if sig.ToolFailures != 3 || sig.LastFailedTool != "command.run" || sig.LastFailStreak != 1 {
+		t.Fatalf("after channel switch failure: failures=%d last=%q streak=%d, want 3/command.run/1", sig.ToolFailures, sig.LastFailedTool, sig.LastFailStreak)
+	}
+	// A real success of the same tool clears its streak.
+	updateSignalsAfterTool(&sig, "command.run", nil, "ok:true\nran")
+	if sig.LastFailedTool != "" || sig.LastFailStreak != 0 {
+		t.Fatalf("success must clear the streak: last=%q streak=%d", sig.LastFailedTool, sig.LastFailStreak)
+	}
+	if sig.ToolFailures != 3 {
+		t.Fatalf("total failures are per-turn and must persist: %d, want 3", sig.ToolFailures)
+	}
+	// Web evidence only counts on success.
+	updateSignalsAfterTool(&sig, "web.search", nil, "ok:true\n3 results")
 	if !sig.HasMaterials {
-		t.Fatal("web evidence must set HasMaterials")
+		t.Fatal("a successful web lookup must set HasMaterials")
 	}
 }
 

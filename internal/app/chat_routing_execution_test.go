@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/lunitide/lunitide/internal/bridge"
@@ -445,5 +446,222 @@ func TestExpertMcpHintOnlyClaimsActuallyAllowedConnections(t *testing.T) {
 	eq.Companion = true
 	if got := connectedMcpForEquipment(eq, ready); !reflect.DeepEqual(got, ready) {
 		t.Fatalf("companion lost unrestricted ready tools: %v", got)
+	}
+}
+
+// g308ScenarioEngine builds the full chat pipeline with a toolExecHook that
+// fails (or serves) tools deterministically, replaying the 0.19.0 incident
+// shape: every web channel fails while the model keeps retrying.
+func g308ScenarioEngine(t *testing.T, hook func(name string, call int) (toolruntime.Result, error)) (*Engine, func() int, func(name string) int) {
+	t.Helper()
+	e := NewEngineWithGateway(chatAttachmentProvider{}, "test", streamTestLease{})
+	runtime, err := toolruntime.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { runtime.Close() })
+	e.SetToolRuntime(runtime)
+	var mu sync.Mutex
+	total := 0
+	perTool := map[string]int{}
+	e.toolExecHook = func(_ context.Context, _ executionMode, _, name string, _ json.RawMessage) (toolruntime.Result, error) {
+		mu.Lock()
+		total++
+		perTool[name]++
+		n := perTool[name]
+		mu.Unlock()
+		return hook(name, n)
+	}
+	counts := func() (int, map[string]int) {
+		mu.Lock()
+		defer mu.Unlock()
+		snapshot := make(map[string]int, len(perTool))
+		for k, v := range perTool {
+			snapshot[k] = v
+		}
+		return total, snapshot
+	}
+	totalFn := func() int { c, _ := counts(); return c }
+	toolFn := func(name string) int { _, m := counts(); return m[name] }
+	return e, totalFn, toolFn
+}
+
+// spokenTextOf joins the streamed deltas of a finished turn.
+func spokenTextOf(frames []bridge.Event) string {
+	var spoken strings.Builder
+	for _, frame := range frames {
+		if frame.Delta != nil {
+			spoken.WriteString(frame.Delta.Text)
+		}
+	}
+	return spoken.String()
+}
+
+// toolSummariesOf collects every completed tool summary in order.
+func toolSummariesOf(frames []bridge.Event) []string {
+	var out []string
+	for _, frame := range frames {
+		if frame.Type == bridge.EventToolCompleted && frame.Tool != nil {
+			out = append(out, frame.Tool.Summary)
+		}
+	}
+	return out
+}
+
+// TestG308ScenarioStopsThirdRetryOfTheSameChannel replays the production
+// incident: a bare company-name lookup while the web channel is dead. The
+// model retries web.search; the first two failures fold into the signals,
+// the third retry is intercepted by G-308, and the model sees the
+// structured reason so it can tell the user the channel is broken.
+func TestG308ScenarioStopsThirdRetryOfTheSameChannel(t *testing.T) {
+	e, total, webSearchCalls := g308ScenarioEngine(t, func(name string, _ int) (toolruntime.Result, error) {
+		if name != "web.search" {
+			t.Errorf("unexpected tool %s", name)
+		}
+		return toolruntime.Result{}, errors.New("proxy 127.0.0.1:5715 无法连接")
+	})
+	modelCalls := 0
+	var sawGateReason, sawFirstFailure bool
+	adapter := &routedExecutionAdapter{stream: func(req llmadapter.Request) (llmadapter.Response, error) {
+		modelCalls++
+		if modelCalls <= 3 {
+			return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
+				{ID: fmt.Sprintf("call-%d", modelCalls), Name: "web.search", Arguments: json.RawMessage(`{"query":"北京支点互动科技有限公司","max":5}`)},
+			}}}, nil
+		}
+		for _, msg := range req.Messages {
+			if msg.Role != llmadapter.RoleTool {
+				continue
+			}
+			if strings.Contains(msg.Content, "proxy 127.0.0.1:5715") {
+				sawFirstFailure = true
+			}
+			if strings.Contains(msg.Content, "[闸口 G-308 单通道止损") {
+				sawGateReason = true
+			}
+		}
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "联网搜索通道连续失败，疑似系统代理不可用。请检查网络或代理设置后重试。"}}, nil
+	}}
+	frames := runRoutedExecution(t, e, "北京支点互动科技有限公司", adapter)
+	if got := webSearchCalls("web.search"); got != 2 {
+		t.Fatalf("web.search executed %d times, want 2 (the 3rd retry must be gated, not executed)", got)
+	}
+	if total() != 2 {
+		t.Fatalf("total tool executions = %d, want 2", total())
+	}
+	if !sawFirstFailure {
+		t.Fatal("the model never saw the real failure output")
+	}
+	if !sawGateReason {
+		t.Fatal("the model never saw the G-308 structured reason")
+	}
+	var noticed bool
+	for _, s := range toolSummariesOf(frames) {
+		if strings.Contains(s, "闸口 G-308 单通道止损") {
+			noticed = true
+		}
+	}
+	if !noticed {
+		t.Fatalf("no user-visible G-308 interception: %v", toolSummariesOf(frames))
+	}
+	if spoken := spokenTextOf(frames); !strings.Contains(spoken, "代理") && !strings.Contains(spoken, "网络") {
+		t.Fatalf("final answer must name the broken channel: %s", spoken)
+	}
+}
+
+// TestG308ScenarioTotalStopLossAfterChannelHopping replays the second wave
+// of the incident: the model hops channels (web.search → web.fetch →
+// command.run). After 4 total failures every further tool call is stopped
+// by the total stop-loss; only the final user-facing answer remains.
+func TestG308ScenarioTotalStopLossAfterChannelHopping(t *testing.T) {
+	e, total, _ := g308ScenarioEngine(t, func(name string, _ int) (toolruntime.Result, error) {
+		return toolruntime.Result{}, errors.New("通道故障: " + name + " 不可用")
+	})
+	modelCalls := 0
+	var sawTotalStopLoss bool
+	adapter := &routedExecutionAdapter{stream: func(req llmadapter.Request) (llmadapter.Response, error) {
+		modelCalls++
+		switch modelCalls {
+		case 1, 2:
+			return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
+				{ID: fmt.Sprintf("call-%d", modelCalls), Name: "web.search", Arguments: json.RawMessage(`{"query":"北京支点互动科技有限公司","max":5}`)},
+			}}}, nil
+		case 3:
+			return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
+				{ID: "call-3", Name: "web.fetch", Arguments: json.RawMessage(`{"url":"https://www.baidu.com/s?wd=北京支点互动科技有限公司"}`)},
+			}}}, nil
+		case 4:
+			return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
+				{ID: "call-4", Name: "command.run", Arguments: json.RawMessage(`{"argv":["curl","-s","https://www.baidu.com"]}`)},
+			}}}, nil
+		case 5:
+			// 4 failures folded: even a different channel must be stopped now.
+			return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
+				{ID: "call-5", Name: "web.fetch", Arguments: json.RawMessage(`{"url":"https://aiqicha.baidu.com/s?q=北京支点互动科技有限公司"}`)},
+			}}}, nil
+		}
+		for _, msg := range req.Messages {
+			if msg.Role == llmadapter.RoleTool && strings.Contains(msg.Content, "[闸口 G-308 通道故障止损]") {
+				sawTotalStopLoss = true
+			}
+		}
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "多个工具通道都失败了，疑似环境故障（网络或代理不可用）。请检查系统代理设置后重试。"}}, nil
+	}}
+	frames := runRoutedExecution(t, e, "北京支点互动科技有限公司", adapter)
+	if got := total(); got != 4 {
+		t.Fatalf("total tool executions = %d, want 4 (the 5th call must be gated)", got)
+	}
+	if !sawTotalStopLoss {
+		t.Fatal("the model never saw the G-308 total stop-loss reason")
+	}
+	var gated string
+	for _, s := range toolSummariesOf(frames) {
+		if strings.Contains(s, "闸口 G-308 通道故障止损") {
+			gated = s
+		}
+	}
+	if gated == "" {
+		t.Fatalf("no total stop-loss interception event: %v", toolSummariesOf(frames))
+	}
+	if spoken := spokenTextOf(frames); !strings.Contains(spoken, "环境故障") && !strings.Contains(spoken, "代理") {
+		t.Fatalf("final answer must tell the user about the environment failure: %s", spoken)
+	}
+}
+
+// TestG308ScenarioSuccessRecoversTheChannel pins the other side of the
+// stop-loss: intermittent failures (fail → success → fail → success) never
+// reach the 2-in-a-row threshold, so every retry stays legal and the lookup
+// lands. A success clears the streak; only consecutive failures arm G-308.
+func TestG308ScenarioSuccessRecoversTheChannel(t *testing.T) {
+	e, _, webSearchCalls := g308ScenarioEngine(t, func(name string, call int) (toolruntime.Result, error) {
+		if name != "web.search" {
+			t.Errorf("unexpected tool %s", name)
+		}
+		if call%2 == 1 {
+			return toolruntime.Result{}, errors.New("timeout: 暂时超时")
+		}
+		return toolruntime.Result{Output: "ok:true\n北京支点互动科技有限公司：一家科技公司（测试摘要）。results_url: https://example.com/results"}, nil
+	})
+	modelCalls := 0
+	adapter := &routedExecutionAdapter{stream: func(req llmadapter.Request) (llmadapter.Response, error) {
+		modelCalls++
+		if modelCalls <= 4 {
+			return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
+				{ID: fmt.Sprintf("call-%d", modelCalls), Name: "web.search", Arguments: json.RawMessage(`{"query":"北京支点互动科技有限公司","max":5}`)},
+			}}}, nil
+		}
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "查到了：北京支点互动科技有限公司是一家科技公司。"}}, nil
+	}}
+	frames := runRoutedExecution(t, e, "北京支点互动科技有限公司", adapter)
+	if got := webSearchCalls("web.search"); got != 4 {
+		t.Fatalf("web.search executed %d times, want 4 (intermittent failures must not be gated)", got)
+	}
+	for _, s := range toolSummariesOf(frames) {
+		if strings.Contains(s, "G-308") {
+			t.Fatalf("healthy recovery must not be gated: %s", s)
+		}
+	}
+	if spoken := spokenTextOf(frames); !strings.Contains(spoken, "查到") {
+		t.Fatalf("final answer missing: %s", spoken)
 	}
 }
