@@ -306,7 +306,7 @@ func (e *Engine) tryFlashClassifyWith(ctx context.Context, goal string, apps []s
 			return adapterErr
 		}
 		resp, completeErr := a.Complete(withCallPurpose(op, "route"), secret, llmadapter.Request{
-			Model: modelID, MaxTokens: 64, MaxAttempts: 1, DisableReasoning: true,
+			Model: modelID, MaxTokens: 64, DisableReasoning: true,
 			Messages: []llmadapter.Message{
 				{Role: llmadapter.RoleSystem, Content: flashRouteSystemPrompt(flashRouteVocabulary(apps, 40), ccEnabled)},
 				{Role: llmadapter.RoleUser, Content: goal},

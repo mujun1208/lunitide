@@ -359,7 +359,7 @@ func (e *Engine) completeWithPreferredModel(ctx context.Context, content string,
 			return adapterErr
 		}
 		resp, completeErr := a.Complete(op, secret, llmadapter.Request{
-			Model: pref.ModelID, MaxTokens: 80, MaxAttempts: 1, DisableReasoning: true,
+			Model: pref.ModelID, MaxTokens: 80, DisableReasoning: true,
 			Messages: []llmadapter.Message{
 				{Role: llmadapter.RoleSystem, Content: "只返回光标所在行的完整文本。不要解释，不要代码块。"},
 				{Role: llmadapter.RoleUser, Content: fmt.Sprintf("行号 %d\n%s", line, content)},

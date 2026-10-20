@@ -58,7 +58,7 @@ func (e *Engine) invokePlanRunTool(ctx context.Context, a llmadapter.Adapter, cr
 	ctx = withCallPurpose(ctx, "plan")
 	// Phase 1: plan.
 	planReq := llmadapter.Request{
-		Model: model, MaxTokens: 1024, MaxAttempts: 1,
+		Model: model, MaxTokens: 1024,
 		Messages: []llmadapter.Message{
 			{Role: llmadapter.RoleSystem, Content: planSystemPrompt},
 			{Role: llmadapter.RoleUser, Content: p.Objective},
@@ -209,7 +209,7 @@ func (e *Engine) runPlanCycle(ctx context.Context, a llmadapter.Adapter, credent
 	if !skip {
 		l0raw, _ := json.Marshal(l0s)
 		verifyReq := llmadapter.Request{
-			MaxTokens: 512, MaxAttempts: 1,
+			MaxTokens: 512,
 			Messages: []llmadapter.Message{
 				{Role: llmadapter.RoleSystem, Content: planVerifyPrompt},
 				{Role: llmadapter.RoleUser, Content: "Objective: " + objective + "\n\nExecution log:\n" + log.String() + "\n\nL0:\n" + string(l0raw)},
@@ -304,7 +304,7 @@ func (e *Engine) executePlanStep(ctx context.Context, a llmadapter.Adapter, cred
 func (e *Engine) executePlanStepOnce(ctx context.Context, a llmadapter.Adapter, credential []byte, model, sessionID string, mode executionMode, objective string, step planStep, index, total int) string {
 	ctx = withCallPurpose(ctx, "plan")
 	req := llmadapter.Request{
-		Model: model, MaxTokens: 2048, MaxAttempts: 1,
+		Model: model, MaxTokens: 2048,
 		Messages: []llmadapter.Message{
 			{Role: llmadapter.RoleSystem, Content: "You are an execution agent. Execute exactly the assigned step using the available tools when needed, then answer with a concise outcome report (max 500 characters). Do not perform work belonging to other steps."},
 			{Role: llmadapter.RoleUser, Content: fmt.Sprintf("Objective: %s\nAssigned step %d/%d: %s — %s", objective, index, total, step.Action, step.Detail)},

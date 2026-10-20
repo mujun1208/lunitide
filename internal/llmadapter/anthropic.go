@@ -243,7 +243,10 @@ func (a *Anthropic) run(ctx context.Context, secret []byte, in Request, stream b
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			status := resp.StatusCode
 			resp.Body.Close()
-			if attempt < maxAttempts && in.IdempotencyKey != "" && a.o.IdempotencyHeader != "" && retryableStatus(status) {
+			// A retryable status arrived before any stream byte: for streams
+			// this is zero-delivery by construction, so no idempotency key is
+			// needed; non-streaming keeps the idempotent-key contract.
+			if attempt < maxAttempts && retryableStatus(status) && (stream || (in.IdempotencyKey != "" && a.o.IdempotencyHeader != "")) {
 				if x := waitRetry(ctx, retryDelay(resp, attempt, a.o.RetryBase)); x != nil {
 					return Response{}, x
 				}
@@ -252,7 +255,17 @@ func (a *Anthropic) run(ctx context.Context, secret []byte, in Request, stream b
 			return Response{}, statusError(status)
 		}
 		if stream {
-			return a.readStream(resp.Body, emit, wn)
+			out, delivered, e := a.readStream(resp.Body, emit, wn)
+			if e != nil && !delivered && attempt < maxAttempts && retryableStreamFault(e) {
+				// Zero-deliverable retry: nothing reached the caller, so the
+				// same-turn attempt loses nothing (the deliverable clock's cut
+				// is defined to happen with zero deliverable bytes).
+				if x := waitRetry(ctx, retryDelay(nil, attempt, a.o.RetryBase)); x != nil {
+					return Response{}, x
+				}
+				continue
+			}
+			return out, e
 		}
 		var x anthropicResponse
 		e = strictJSON(resp.Body, &x)
@@ -283,7 +296,7 @@ func (a *Anthropic) run(ctx context.Context, secret []byte, in Request, stream b
 	}
 	return Response{}, safeError("RETRY_EXHAUSTED", StageConnect, 0, "upstream unavailable")
 }
-func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *wireNames) (Response, error) {
+func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *wireNames) (Response, bool, error) {
 	defer body.Close()
 	out := Response{Message: Message{Role: RoleAssistant}}
 	type partialCall struct {
@@ -311,21 +324,21 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *w
 	streamStart := time.Now()
 	for {
 		if !deliverableSeen && time.Since(streamStart) > deliverableIdle {
-			return out, safeError("REASONING_STALL", StageStream, 0, "upstream produced no deliverable content within the stall window")
+			return out, deliverableSeen, safeError("REASONING_STALL", StageStream, 0, "upstream produced no deliverable content within the stall window")
 		}
 		if time.Since(lastContent) > contentIdle {
-			return out, safeError("TIMEOUT", StageStream, 0, "upstream stalled: no content deltas within the idle window")
+			return out, deliverableSeen, safeError("TIMEOUT", StageStream, 0, "upstream stalled: no content deltas within the idle window")
 		}
 		ev, eof, e := a.c.ReadSSE(body)
 		if e != nil {
-			return out, classifyStreamError(e)
+			return out, deliverableSeen, classifyStreamError(e)
 		}
 		if eof {
 			break
 		}
 		typ, data := sseData(ev)
 		if err := streamEventError(typ, data); err != nil {
-			return out, err
+			return out, deliverableSeen, err
 		}
 		if typ == "message_stop" {
 			completed = true
@@ -333,7 +346,7 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *w
 		}
 		var x anthropicResponse
 		if e := strictJSON(strings.NewReader(data), &x); e != nil {
-			return out, e
+			return out, deliverableSeen, e
 		}
 		if typ == "content_block_delta" && x.Delta.Type == "text_delta" {
 			out.Message.Content += x.Delta.Text
@@ -343,7 +356,7 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *w
 			}
 			if emit != nil {
 				if e := emit(Delta{Text: x.Delta.Text}); e != nil {
-					return out, e
+					return out, deliverableSeen, e
 				}
 			}
 		}
@@ -352,13 +365,13 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *w
 			lastContent = time.Now()
 			if emit != nil {
 				if e := emit(Delta{Reasoning: x.Delta.Thinking}); e != nil {
-					return out, e
+					return out, deliverableSeen, e
 				}
 			}
 		}
 		if typ == "content_block_start" && x.ContentBlock.Type == "tool_use" {
 			if x.ContentBlock.ID == "" || x.ContentBlock.Name == "" {
-				return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "tool_use omitted identity")
+				return out, deliverableSeen, safeError("MALFORMED_RESPONSE", StageDecode, 0, "tool_use omitted identity")
 			}
 			p := &partialCall{id: x.ContentBlock.ID, name: x.ContentBlock.Name}
 			deliverableSeen = true
@@ -370,7 +383,7 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *w
 		if typ == "content_block_delta" && x.Delta.Type == "input_json_delta" {
 			p := partials[x.Index]
 			if p == nil {
-				return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "tool fragment omitted start")
+				return out, deliverableSeen, safeError("MALFORMED_RESPONSE", StageDecode, 0, "tool fragment omitted start")
 			}
 			if x.Delta.PartialJSON != "" {
 				lastContent = time.Now()
@@ -385,13 +398,13 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *w
 					raw = json.RawMessage(`{}`)
 				}
 				if !json.Valid(raw) {
-					return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "tool arguments are invalid JSON")
+					return out, deliverableSeen, safeError("MALFORMED_RESPONSE", StageDecode, 0, "tool arguments are invalid JSON")
 				}
 				call := ToolCall{ID: p.id, Name: wn.original(p.name), Arguments: raw}
 				out.Message.ToolCalls = append(out.Message.ToolCalls, call)
 				if emit != nil {
 					if e := emit(Delta{ToolCall: &call}); e != nil {
-						return out, e
+						return out, deliverableSeen, e
 					}
 				}
 				delete(partials, x.Index)
@@ -413,25 +426,25 @@ func (a *Anthropic) readStream(body io.ReadCloser, emit func(Delta) error, wn *w
 			}
 			usage.merge(next)
 			if !usage.valid() {
-				return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "upstream returned invalid usage")
+				return out, deliverableSeen, safeError("MALFORMED_RESPONSE", StageDecode, 0, "upstream returned invalid usage")
 			}
 			u := usage.normalized()
 			out.Usage = u
 			if emit != nil && (u.TotalTokens > 0 || u.CacheUsageReported) {
 				if e := emit(Delta{Usage: &u}); e != nil {
-					return out, e
+					return out, deliverableSeen, e
 				}
 			}
 		}
 	}
 	if !completed {
-		return out, safeError("STREAM_INCOMPLETE", StageStream, 0, "upstream stream ended before completion")
+		return out, deliverableSeen, safeError("STREAM_INCOMPLETE", StageStream, 0, "upstream stream ended before completion")
 	}
 	if len(partials) != 0 {
-		return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "unterminated tool_use block")
+		return out, deliverableSeen, safeError("MALFORMED_RESPONSE", StageDecode, 0, "unterminated tool_use block")
 	}
 	out.Message.ReasoningContent = out.Reasoning
-	return out, nil
+	return out, deliverableSeen, nil
 }
 func (a *Anthropic) Discover(ctx context.Context, secret []byte) (Discovery, error) {
 	return Discovery{Unsupported: true, Warning: "Anthropic does not provide a portable model-list endpoint; configure a model explicitly"}, nil

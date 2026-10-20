@@ -10,8 +10,11 @@ import (
 	"github.com/lunitide/lunitide/internal/networkpolicy"
 )
 
-// Stream failures happen after HTTP headers have arrived. Do not retry them:
-// output and tool intent may already have been received by the caller.
+// Stream failures happen after HTTP headers have arrived. The retry decision
+// is delivery-based, not error-based: the run loop may retry a stream fault
+// only while nothing deliverable (text or tool fragment) has been emitted,
+// which the readStream deliverable clock tracks; once a single deliverable
+// delta went out, the no-retry contract holds and the fault surfaces.
 func classifyStreamError(err error) *Error {
 	code := classify(err).Code
 	var policyError *networkpolicy.Error
@@ -35,6 +38,22 @@ func classifyStreamError(err error) *Error {
 		code = "STREAM_INCOMPLETE"
 	}
 	return safeError(code, StageStream, 0, "upstream stream interrupted")
+}
+
+// retryableStreamFault reports whether a zero-deliverable stream fault is
+// worth a same-turn retry: transient upstream states only. Caller must also
+// verify the stream delivered nothing — an error after the first emitted
+// deliverable delta is never retried regardless of class.
+func retryableStreamFault(e error) bool {
+	var se *Error
+	if !errors.As(e, &se) {
+		return false
+	}
+	switch se.Code {
+	case "REASONING_STALL", "TIMEOUT", "STREAM_INCOMPLETE", "STREAM_RATE_LIMITED", "STREAM_UNAVAILABLE", "STREAM_OVERLOADED":
+		return true
+	}
+	return false
 }
 
 // Decode only machine-readable error classes. Provider messages can echo

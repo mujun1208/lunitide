@@ -1097,7 +1097,7 @@ func handleChatStart(e *Engine, ctx context.Context, request bridge.Request) bri
 		messages = injectVisionDescription(messages, "已附图片，但 OCR 和视觉模型都没有读出内容。请确认本机 OCR 可用，或在设置里启用视觉模型后再上传。")
 	}
 	imageAnswerOnly := hadImages && !imageHasFollowUpWork(imageQuestion)
-	req := llmadapter.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: chatMaxTokens, MaxAttempts: 1, DisableReasoning: p.Companion || isShortIdleGreeting(intent.Text)}
+	req := llmadapter.Request{Model: p.ModelID, Messages: messages, Images: images, MaxTokens: chatMaxTokens, DisableReasoning: p.Companion || isShortIdleGreeting(intent.Text)}
 	if p.Companion {
 		req.MaxTokens = companionMaxTokens
 	}

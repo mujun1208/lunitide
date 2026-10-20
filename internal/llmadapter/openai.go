@@ -219,7 +219,10 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 				continue
 			}
 			last = statusErrorReason(resp.StatusCode, reason)
-			if attempt < maxAttempts && in.IdempotencyKey != "" && a.o.IdempotencyHeader != "" && retryableStatus(resp.StatusCode) {
+			// A retryable status arrived before any stream byte: for streams
+			// this is zero-delivery by construction, so no idempotency key is
+			// needed; non-streaming keeps the idempotent-key contract.
+			if attempt < maxAttempts && retryableStatus(resp.StatusCode) && (stream || (in.IdempotencyKey != "" && a.o.IdempotencyHeader != "")) {
 				if e := waitRetry(ctx, retryDelay(resp, attempt, a.o.RetryBase)); e != nil {
 					return Response{}, e
 				}
@@ -246,7 +249,17 @@ func (a *OpenAI) run(ctx context.Context, secret []byte, in Request, stream bool
 			}
 			return Response{Message: m, Usage: out.Usage.normalized(), Reasoning: out.Choices[0].Message.ReasoningContent, FinishReason: normalizeFinishReason(out.Choices[0].FinishReason)}, nil
 		}
-		return a.readStream(resp.Body, emit, wn)
+		out, delivered, e := a.readStream(resp.Body, emit, wn)
+		if e != nil && !delivered && attempt < maxAttempts && retryableStreamFault(e) {
+			// Zero-deliverable retry: nothing reached the caller, so the
+			// same-turn attempt loses nothing (the deliverable clock's cut
+			// is defined to happen with zero deliverable bytes).
+			if x := waitRetry(ctx, retryDelay(nil, attempt, a.o.RetryBase)); x != nil {
+				return Response{}, x
+			}
+			continue
+		}
+		return out, e
 	}
 	return Response{}, last
 }
@@ -315,7 +328,7 @@ func imageURLWantsRawBase64(reason string) bool {
 		(strings.Contains(lower, "url") || strings.Contains(lower, "encoded"))
 }
 
-func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wireNames) (Response, error) {
+func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wireNames) (Response, bool, error) {
 	defer body.Close()
 	var out Response
 	out.Message.Role = RoleAssistant
@@ -340,21 +353,21 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wire
 	streamStart := time.Now()
 	for {
 		if !deliverableSeen && time.Since(streamStart) > deliverableIdle {
-			return out, safeError("REASONING_STALL", StageStream, 0, "upstream produced no deliverable content within the stall window")
+			return out, deliverableSeen, safeError("REASONING_STALL", StageStream, 0, "upstream produced no deliverable content within the stall window")
 		}
 		if time.Since(lastContent) > contentIdle {
-			return out, safeError("TIMEOUT", StageStream, 0, "upstream stalled: no content deltas within the idle window")
+			return out, deliverableSeen, safeError("TIMEOUT", StageStream, 0, "upstream stalled: no content deltas within the idle window")
 		}
 		event, eof, err := a.c.ReadSSE(body)
 		if err != nil {
-			return out, classifyStreamError(err)
+			return out, deliverableSeen, classifyStreamError(err)
 		}
 		if eof {
 			break
 		}
 		typ, data := sseData(event)
 		if err := streamEventError(typ, data); err != nil {
-			return out, err
+			return out, deliverableSeen, err
 		}
 		if data == "[DONE]" {
 			completed = true
@@ -362,10 +375,10 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wire
 		}
 		var chunk openAIResponse
 		if e := compatibleJSON(strings.NewReader(data), &chunk); e != nil {
-			return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "upstream returned invalid json")
+			return out, deliverableSeen, safeError("MALFORMED_RESPONSE", StageDecode, 0, "upstream returned invalid json")
 		}
 		if !validUsage(usageCount(chunk.Usage.Prompt), chunk.Usage.Completion, chunk.Usage.Total) {
-			return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "upstream returned invalid usage")
+			return out, deliverableSeen, safeError("MALFORMED_RESPONSE", StageDecode, 0, "upstream returned invalid usage")
 		}
 		u := chunk.Usage.normalized()
 		if u.TotalTokens > 0 || u.CacheUsageReported {
@@ -382,7 +395,7 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wire
 			}
 			if emit != nil && reasoning != "" {
 				if e := emit(Delta{Reasoning: reasoning}); e != nil {
-					return out, e
+					return out, deliverableSeen, e
 				}
 			}
 			text := chunk.Choices[0].Delta.Content
@@ -393,7 +406,7 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wire
 			}
 			if emit != nil && text != "" {
 				if e := emit(Delta{Text: text}); e != nil {
-					return out, e
+					return out, deliverableSeen, e
 				}
 			}
 			for _, tc := range chunk.Choices[0].Delta.ToolCalls {
@@ -414,29 +427,29 @@ func (a *OpenAI) readStream(body io.ReadCloser, emit func(Delta) error, wn *wire
 		if u.TotalTokens > 0 || u.CacheUsageReported {
 			if emit != nil {
 				if e := emit(Delta{Usage: &u}); e != nil {
-					return out, e
+					return out, deliverableSeen, e
 				}
 			}
 		}
 	}
 	if !completed {
-		return out, safeError("STREAM_INCOMPLETE", StageStream, 0, "upstream stream ended before completion")
+		return out, deliverableSeen, safeError("STREAM_INCOMPLETE", StageStream, 0, "upstream stream ended before completion")
 	}
 	for i := 0; i < len(calls); i++ {
 		p := calls[i]
 		if p == nil || p.id == "" || p.name == "" || !json.Valid([]byte(p.args)) {
-			return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "invalid tool call")
+			return out, deliverableSeen, safeError("MALFORMED_RESPONSE", StageDecode, 0, "invalid tool call")
 		}
 		tc := ToolCall{ID: p.id, Name: wn.original(p.name), Arguments: json.RawMessage(p.args)}
 		out.Message.ToolCalls = append(out.Message.ToolCalls, tc)
 		if emit != nil {
 			if e := emit(Delta{ToolCall: &tc}); e != nil {
-				return out, e
+				return out, deliverableSeen, e
 			}
 		}
 	}
 	out.Message.ReasoningContent = out.Reasoning
-	return out, nil
+	return out, deliverableSeen, nil
 }
 
 func (a *OpenAI) Discover(ctx context.Context, secret []byte) (Discovery, error) {

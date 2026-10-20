@@ -364,7 +364,6 @@ func (e *Engine) deliberateExpert(ctx context.Context, a llmadapter.Adapter, cre
 	req := llmadapter.Request{
 		Model:            model,
 		MaxTokens:        councilExpertMaxTokens,
-		MaxAttempts:      1,
 		DisableReasoning: companion || (cfg.Lane != "" && !cfg.Tools),
 		Tools:            tools,
 		Messages: []llmadapter.Message{

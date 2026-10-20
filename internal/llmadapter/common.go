@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/netip"
 	"strconv"
@@ -377,9 +378,13 @@ func attempts(o Options, in Request, stream bool) int {
 	if in.MaxAttempts > 0 {
 		n = in.MaxAttempts
 	}
-	if n < 1 || stream {
+	if n < 1 {
 		return 1
 	}
+	// Streaming no longer forces a single attempt: the run loop only retries
+	// a stream before anything is deliverable (connection failure, a
+	// retryable status, or a zero-deliverable stall cut), so a retry never
+	// replays partial output.
 	return n
 }
 func uncertain(err error) *Error {
@@ -420,8 +425,13 @@ func retryDelay(resp *http.Response, attempt int, base time.Duration) time.Durat
 		d *= 2
 	}
 	if d > maxRetryDelay {
-		return maxRetryDelay
+		d = maxRetryDelay
 	}
+	// Equal jitter on the computed backoff only: concurrent clients hitting
+	// a shared rate limit at the same instant would otherwise retry in
+	// lockstep and keep colliding. Retry-After is the server's explicit
+	// instruction and stays unjittered.
+	d = d/2 + time.Duration(rand.Int63n(int64(d/2)+1))
 	return d
 }
 

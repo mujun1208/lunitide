@@ -291,7 +291,10 @@ func (a *OpenAIResponses) run(ctx context.Context, secret []byte, in Request, st
 				continue
 			}
 			last = statusErrorReason(resp.StatusCode, reason)
-			if attempt < maxAttempts && in.IdempotencyKey != "" && a.o.IdempotencyHeader != "" && retryableStatus(resp.StatusCode) {
+			// A retryable status arrived before any stream byte: for streams
+			// this is zero-delivery by construction, so no idempotency key is
+			// needed; non-streaming keeps the idempotent-key contract.
+			if attempt < maxAttempts && retryableStatus(resp.StatusCode) && (stream || (in.IdempotencyKey != "" && a.o.IdempotencyHeader != "")) {
 				if e := waitRetry(ctx, retryDelay(resp, attempt, a.o.RetryBase)); e != nil {
 					return Response{}, e
 				}
@@ -308,7 +311,17 @@ func (a *OpenAIResponses) run(ctx context.Context, secret []byte, in Request, st
 			}
 			return responsesFinal(out, wn, resp.StatusCode)
 		}
-		return a.readStream(resp.Body, emit, wn, in.DisableReasoning)
+		out, delivered, e := a.readStream(resp.Body, emit, wn, in.DisableReasoning)
+		if e != nil && !delivered && attempt < maxAttempts && retryableStreamFault(e) {
+			// Zero-deliverable retry: nothing reached the caller, so the
+			// same-turn attempt loses nothing (the deliverable clock's cut
+			// is defined to happen with zero deliverable bytes).
+			if x := waitRetry(ctx, retryDelay(nil, attempt, a.o.RetryBase)); x != nil {
+				return Response{}, x
+			}
+			continue
+		}
+		return out, e
 	}
 	return Response{}, last
 }
@@ -384,7 +397,7 @@ func responsesFinishReason(out responsesObject, toolCalls bool) FinishReason {
 	return FinishReasonOther
 }
 
-func (a *OpenAIResponses) readStream(body io.ReadCloser, emit func(Delta) error, wn *wireNames, muteReasoning bool) (Response, error) {
+func (a *OpenAIResponses) readStream(body io.ReadCloser, emit func(Delta) error, wn *wireNames, muteReasoning bool) (Response, bool, error) {
 	defer body.Close()
 	out := Response{Message: Message{Role: RoleAssistant}}
 	type partial struct{ id, name, args string }
@@ -410,14 +423,14 @@ func (a *OpenAIResponses) readStream(body io.ReadCloser, emit func(Delta) error,
 	streamStart := time.Now()
 	for {
 		if !deliverableSeen && time.Since(streamStart) > deliverableIdle {
-			return out, safeError("REASONING_STALL", StageStream, 0, "upstream produced no deliverable content within the stall window")
+			return out, deliverableSeen, safeError("REASONING_STALL", StageStream, 0, "upstream produced no deliverable content within the stall window")
 		}
 		if time.Since(lastContent) > contentIdle {
-			return out, safeError("TIMEOUT", StageStream, 0, "upstream stalled: no content deltas within the idle window")
+			return out, deliverableSeen, safeError("TIMEOUT", StageStream, 0, "upstream stalled: no content deltas within the idle window")
 		}
 		event, eof, err := a.c.ReadSSE(body)
 		if err != nil {
-			return out, classifyStreamError(err)
+			return out, deliverableSeen, classifyStreamError(err)
 		}
 		if eof {
 			break
@@ -431,11 +444,11 @@ func (a *OpenAIResponses) readStream(body io.ReadCloser, emit func(Delta) error,
 			break
 		}
 		if err := streamEventError(typ, data); err != nil {
-			return out, err
+			return out, deliverableSeen, err
 		}
 		var ev responsesStreamEvent
 		if e := compatibleJSON(strings.NewReader(data), &ev); e != nil {
-			return out, e
+			return out, deliverableSeen, e
 		}
 		if ev.Type == "" {
 			ev.Type = typ
@@ -449,7 +462,7 @@ func (a *OpenAIResponses) readStream(body io.ReadCloser, emit func(Delta) error,
 			}
 			if emit != nil && ev.Delta != "" {
 				if e := emit(Delta{Text: ev.Delta}); e != nil {
-					return out, e
+					return out, deliverableSeen, e
 				}
 			}
 		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta", "response.reasoning.delta":
@@ -459,7 +472,7 @@ func (a *OpenAIResponses) readStream(body io.ReadCloser, emit func(Delta) error,
 			}
 			if emit != nil && ev.Delta != "" && !muteReasoning {
 				if e := emit(Delta{Reasoning: ev.Delta}); e != nil {
-					return out, e
+					return out, deliverableSeen, e
 				}
 			}
 		case "response.output_item.added", "response.output_item.done":
@@ -514,21 +527,21 @@ func (a *OpenAIResponses) readStream(body io.ReadCloser, emit func(Delta) error,
 		}
 	}
 	if !completed {
-		return out, safeError("STREAM_INCOMPLETE", StageStream, 0, "upstream stream ended before completion")
+		return out, deliverableSeen, safeError("STREAM_INCOMPLETE", StageStream, 0, "upstream stream ended before completion")
 	}
 	if final != nil {
 		if final.Status == "failed" {
-			return out, safeError("UPSTREAM_FAILED", StageStream, 0, "upstream reported a failed response")
+			return out, deliverableSeen, safeError("UPSTREAM_FAILED", StageStream, 0, "upstream reported a failed response")
 		}
 		if final.Usage != nil {
 			if !final.Usage.valid() {
-				return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "upstream returned invalid usage")
+				return out, deliverableSeen, safeError("MALFORMED_RESPONSE", StageDecode, 0, "upstream returned invalid usage")
 			}
 			u := final.Usage.normalized()
 			out.Usage = u
 			if emit != nil && (u.TotalTokens > 0 || u.CacheUsageReported) {
 				if e := emit(Delta{Usage: &u}); e != nil {
-					return out, e
+					return out, deliverableSeen, e
 				}
 			}
 		}
@@ -558,13 +571,13 @@ func (a *OpenAIResponses) readStream(body io.ReadCloser, emit func(Delta) error,
 	for _, idx := range order {
 		p := calls[idx]
 		if p == nil || p.id == "" || p.name == "" || !json.Valid([]byte(p.args)) {
-			return out, safeError("MALFORMED_RESPONSE", StageDecode, 0, "invalid tool call")
+			return out, deliverableSeen, safeError("MALFORMED_RESPONSE", StageDecode, 0, "invalid tool call")
 		}
 		tc := ToolCall{ID: p.id, Name: wn.original(p.name), Arguments: json.RawMessage(p.args)}
 		out.Message.ToolCalls = append(out.Message.ToolCalls, tc)
 		if emit != nil {
 			if e := emit(Delta{ToolCall: &tc}); e != nil {
-				return out, e
+				return out, deliverableSeen, e
 			}
 		}
 	}
@@ -576,5 +589,5 @@ func (a *OpenAIResponses) readStream(body io.ReadCloser, emit func(Delta) error,
 	} else {
 		out.FinishReason = FinishReasonStop
 	}
-	return out, nil
+	return out, deliverableSeen, nil
 }

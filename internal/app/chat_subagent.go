@@ -236,7 +236,7 @@ func (e *Engine) executeSubagentLoop(ctx context.Context, a llmadapter.Adapter, 
 	tools := subagentEngineToolDefinitions(profile)
 	allowed := toolNameSet(tools)
 	req := llmadapter.Request{
-		Model: model, MaxTokens: maxTokens, MaxAttempts: 1,
+		Model: model, MaxTokens: maxTokens,
 		Messages: []llmadapter.Message{
 			{Role: llmadapter.RoleSystem, Content: prompt},
 			{Role: llmadapter.RoleUser, Content: purpose},
