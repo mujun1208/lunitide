@@ -74,3 +74,5 @@ errcheck-*.txt
 /app/
 # Trae IDE session artifacts (plans, scratch docs) - never shipped.
 /.trae/
+# Trae IDE HTML share exports of design docs - local only, never shipped.
+/.trae-html-share-packages/

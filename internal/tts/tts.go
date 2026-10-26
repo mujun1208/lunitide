@@ -100,6 +100,26 @@ type ChunkStreamer interface {
 	SynthesizeStream(ctx context.Context, in SynthesizeInput, emit func([]byte) error) (SynthesizeResult, bool, error)
 }
 
+// ContextSynthesizer is implemented by engines whose whole-clip synthesis
+// can be aborted mid-request (the local GPT-SoVITS POST holds the
+// single-flight lock for 30-90s of CPU inference; a companion interrupt
+// must release that lock immediately, not after the zombie finishes).
+type ContextSynthesizer interface {
+	SynthesizeCtx(ctx context.Context, in SynthesizeInput) (SynthesizeResult, bool, error)
+}
+
+// synthesizeWithCancel dispatches to the ctx-aware path when the engine
+// offers one and falls back to the legacy call otherwise.
+func synthesizeWithCancel(ctx context.Context, eng Engine, in SynthesizeInput) (SynthesizeResult, bool, error) {
+	if ctx == nil {
+		return eng.Synthesize(in)
+	}
+	if cs, ok := eng.(ContextSynthesizer); ok {
+		return cs.SynthesizeCtx(ctx, in)
+	}
+	return eng.Synthesize(in)
+}
+
 // MaxSegmentChars is the per-segment character cap enforced by the
 // technical design (segmentation happens in the renderer).
 const MaxSegmentChars = 500

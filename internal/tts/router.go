@@ -133,6 +133,32 @@ func (r *RouterEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, e
 	}
 }
 
+// SynthesizeCtx routes the interruptible whole-clip path: engines that
+// implement ContextSynthesizer (ref / GPT-SoVITS today) abort their
+// in-flight HTTP POST the moment the service cancels.
+func (r *RouterEngine) SynthesizeCtx(ctx context.Context, in SynthesizeInput) (SynthesizeResult, bool, error) {
+	eng := Engine(nil)
+	switch in.Engine {
+	case EngineVolc:
+		eng = r.volc
+	case EngineRef:
+		eng = r.ref
+	case EngineOnnx:
+		eng = r.onnx
+	case EngineEdge:
+		eng = r.edge
+	default:
+		eng = r.sapi
+	}
+	if eng == nil {
+		return SynthesizeResult{}, false, fmt.Errorf("%w: 语音引擎未装配", ErrEngineUnavailable)
+	}
+	if cs, ok := eng.(ContextSynthesizer); ok {
+		return cs.SynthesizeCtx(ctx, in)
+	}
+	return eng.Synthesize(in)
+}
+
 func (r *RouterEngine) SynthesizeStream(ctx context.Context, in SynthesizeInput, emit func([]byte) error) (SynthesizeResult, bool, error) {
 	res, fb, err := r.synthesizeStream(ctx, in, emit)
 	if err != nil || emit == nil {
@@ -150,7 +176,7 @@ func (r *RouterEngine) synthesizeStream(ctx context.Context, in SynthesizeInput,
 		if s, ok := r.volc.(ChunkStreamer); ok {
 			return s.SynthesizeStream(ctx, in, emit)
 		}
-		return emitWhole(r.volc, in, emit)
+		return emitWhole(ctx, r.volc, in, emit)
 	case EngineEdge:
 		if r.edge == nil {
 			return SynthesizeResult{}, false, fmt.Errorf("%w: 云端语音引擎未装配", ErrEngineUnavailable)
@@ -158,7 +184,7 @@ func (r *RouterEngine) synthesizeStream(ctx context.Context, in SynthesizeInput,
 		if s, ok := r.edge.(ChunkStreamer); ok {
 			return s.SynthesizeStream(ctx, in, emit)
 		}
-		return emitWhole(r.edge, in, emit)
+		return emitWhole(ctx, r.edge, in, emit)
 	default:
 		eng := r.sapi
 		if in.Engine == EngineRef {
@@ -170,12 +196,12 @@ func (r *RouterEngine) synthesizeStream(ctx context.Context, in SynthesizeInput,
 		if eng == nil {
 			return SynthesizeResult{}, false, fmt.Errorf("%w: 语音引擎未装配", ErrEngineUnavailable)
 		}
-		return emitWhole(eng, in, emit)
+		return emitWhole(ctx, eng, in, emit)
 	}
 }
 
-func emitWhole(eng Engine, in SynthesizeInput, emit func([]byte) error) (SynthesizeResult, bool, error) {
-	res, fb, err := eng.Synthesize(in)
+func emitWhole(ctx context.Context, eng Engine, in SynthesizeInput, emit func([]byte) error) (SynthesizeResult, bool, error) {
+	res, fb, err := synthesizeWithCancel(ctx, eng, in)
 	if err != nil || emit == nil || res.WavBase64 == "" {
 		return res, fb, err
 	}

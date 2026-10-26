@@ -1,6 +1,7 @@
 package tts
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -155,5 +156,86 @@ func TestServiceCancelIdleIsNoOp(t *testing.T) {
 	out, err := svc.Synthesize(SynthesizeInput{Text: "ok"})
 	if err != nil || out.Discarded || out.Result.WavBase64 == "" {
 		t.Fatalf("post-idle-cancel synthesize = %+v, %v", out, err)
+	}
+}
+
+// ctxMockEngine simulates the GPT-SoVITS ref engine: one whole-clip call
+// that parks on the service ctx — a 30-90s CPU inference — and unwinds
+// the moment the ctx fires.
+type ctxMockEngine struct {
+	started  chan struct{} // closed when the engine call begins
+	released chan struct{} // closed to simulate the inference finishing
+	aborted  atomic.Bool
+	calls    atomic.Int32
+}
+
+func (m *ctxMockEngine) Voices() ([]Voice, error) { return nil, nil }
+
+func (m *ctxMockEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, error) {
+	return m.SynthesizeCtx(context.Background(), in)
+}
+
+func (m *ctxMockEngine) SynthesizeCtx(ctx context.Context, in SynthesizeInput) (SynthesizeResult, bool, error) {
+	m.calls.Add(1)
+	m.started <- struct{}{}
+	select {
+	case <-ctx.Done():
+		m.aborted.Store(true)
+		return SynthesizeResult{}, false, ctx.Err()
+	case <-m.released:
+		return SynthesizeResult{WavBase64: "wav:" + in.Text, DurationHint: 1}, false, nil
+	}
+}
+
+// TestServiceCancelAbortsInFlightEngineCall is the multi-round companion
+// regression: an interrupt (Cancel) must release the single-flight lock
+// right away, so the NEXT round's first segment never queues behind a
+// zombie inference. Before the ctx-aware path, the queued fresh request
+// waited out the full 30-90s zombie hold.
+func TestServiceCancelAbortsInFlightEngineCall(t *testing.T) {
+	mock := &ctxMockEngine{started: make(chan struct{}, 1), released: make(chan struct{})}
+	svc := NewService(mock)
+
+	inFlightDone := make(chan struct{})
+	go func() {
+		out, err := svc.Synthesize(SynthesizeInput{Text: "僵尸段"})
+		if err != nil {
+			t.Error(err)
+		}
+		if !out.Discarded {
+			t.Error("aborted in-flight segment must be discarded")
+		}
+		close(inFlightDone)
+	}()
+	<-mock.started
+
+	// A fresh request issued right after the cancel must NOT wait behind
+	// the zombie: it enters the engine as soon as the lock frees.
+	svc.Cancel()
+	<-inFlightDone
+	if !mock.aborted.Load() {
+		t.Fatal("Cancel did not abort the in-flight engine call")
+	}
+
+	freshDone := make(chan struct{})
+	go func() {
+		out, err := svc.Synthesize(SynthesizeInput{Text: "新轮首段"})
+		if err != nil {
+			t.Error(err)
+		}
+		if out.Discarded {
+			t.Error("fresh post-cancel request must synthesize")
+		}
+		if out.Result.WavBase64 != "wav:新轮首段" {
+			t.Errorf("fresh result = %q", out.Result.WavBase64)
+		}
+		close(freshDone)
+	}()
+	<-mock.started
+	close(mock.released)
+	<-freshDone
+
+	if got := mock.calls.Load(); got != 2 {
+		t.Fatalf("engine calls = %d, want 2 (zombie + fresh)", got)
 	}
 }

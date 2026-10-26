@@ -30,7 +30,7 @@
     "hls.js": "^1.7.3",
     "html-to-image": "^1.11.13",
     "lucide-react": "1.42.0",
-    "mermaid": "^11.12.0",
+    "mermaid": "^12.2.0",
     "monaco-editor": "^0.52.2",
     "ogl": "^1.0.11",
     "pdfjs-dist": "6.3.289",
@@ -54,6 +54,6 @@
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^26.1.0",
     "prettier": "^3.3.3",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   }
 }

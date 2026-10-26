@@ -10,6 +10,7 @@ package tts
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -119,6 +120,22 @@ func wrapRefHostErr(err error) error {
 func (r *refEngine) Voices() ([]Voice, error) { return RefVoices(), nil }
 
 func (r *refEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, error) {
+	return r.SynthesizeCtx(context.Background(), in)
+}
+
+// refPost issues one ctx-aware POST to the GPT-SoVITS /tts endpoint. The
+// ctx is the service-level cancel: a companion interrupt aborts the
+// socket instead of letting a zombie inference pin the engine lock.
+func (r *refEngine) refPost(ctx context.Context, endpoint string, body []byte) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(endpoint, "/")+"/tts", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return r.client.Do(req)
+}
+
+func (r *refEngine) SynthesizeCtx(ctx context.Context, in SynthesizeInput) (SynthesizeResult, bool, error) {
 	endpoint := CanonicalRefEndpoint(in.RefEndpoint)
 	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
 		return SynthesizeResult{}, false, fmt.Errorf("%w: 参考音色服务地址无效", ErrSynthesisFailed)
@@ -145,8 +162,12 @@ func (r *refEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, erro
 	if err != nil {
 		return SynthesizeResult{}, false, fmt.Errorf("%w: 参考音色请求无效", ErrSynthesisFailed)
 	}
-	resp, err := r.client.Post(strings.TrimRight(endpoint, "/")+"/tts", "application/json", bytes.NewReader(body))
+	resp, err := r.refPost(ctx, endpoint, body)
 	if err != nil {
+		if ctx.Err() != nil {
+			// The interrupt path: cancelled in-flight, not an engine fault.
+			return SynthesizeResult{}, false, ctx.Err()
+		}
 		// Connection refused on the default local endpoint → auto-host
 		// the GPT-SoVITS service (spawn + wait for the model to load),
 		// then retry once. Custom endpoints (LAN/remote services) and
@@ -158,11 +179,17 @@ func (r *refEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, erro
 				return SynthesizeResult{}, false, fmt.Errorf("%w: 语音引擎仍在启动", ErrRefEngineStarting)
 			}
 			if hostErr := DefaultRefHost.EnsureRunning(endpoint, refHostFirstWait); hostErr == nil {
-				resp, err = r.client.Post(strings.TrimRight(endpoint, "/")+"/tts", "application/json", bytes.NewReader(body))
+				if ctx.Err() != nil {
+					return SynthesizeResult{}, false, ctx.Err()
+				}
+				resp, err = r.refPost(ctx, endpoint, body)
 			} else {
 				return SynthesizeResult{}, false, wrapRefHostErr(hostErr)
 			}
 			if err != nil {
+				if ctx.Err() != nil {
+					return SynthesizeResult{}, false, ctx.Err()
+				}
 				return SynthesizeResult{}, false, fmt.Errorf("%w: 无法连接参考音色服务（%v）", ErrSynthesisFailed, err)
 			}
 		} else {
@@ -172,6 +199,9 @@ func (r *refEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, erro
 	defer resp.Body.Close()
 	wav, err := io.ReadAll(io.LimitReader(resp.Body, refMaxAudio))
 	if err != nil {
+		if ctx.Err() != nil {
+			return SynthesizeResult{}, false, ctx.Err()
+		}
 		return SynthesizeResult{}, false, fmt.Errorf("%w: 读取合成结果失败", ErrSynthesisFailed)
 	}
 	if resp.StatusCode != http.StatusOK || len(wav) < 44 || string(wav[:4]) != "RIFF" {
@@ -179,7 +209,7 @@ func (r *refEngine) Synthesize(in SynthesizeInput) (SynthesizeResult, bool, erro
 			banRefStreaming()
 			retry := in
 			retry.TryStreaming = false
-			return r.Synthesize(retry)
+			return r.SynthesizeCtx(ctx, retry)
 		}
 		return SynthesizeResult{}, false, fmt.Errorf("%w: 参考音色服务返回异常（%s）", ErrSynthesisFailed, refServiceErrorDetail(resp.StatusCode, wav))
 	}

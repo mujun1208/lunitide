@@ -21,6 +21,13 @@ type Service struct {
 	mu    sync.Mutex
 	epoch atomic.Uint64
 
+	// cancelMu guards currentSlot so Cancel() never blocks behind the
+	// single-flight mu — the whole point is to abort the in-flight engine
+	// call (a 30-90s GPT-SoVITS CPU inference) the moment an interrupt
+	// lands, instead of letting the next round queue behind a zombie.
+	cancelMu    sync.Mutex
+	currentSlot *engineCancelSlot
+
 	cache map[string]SynthesizeResult
 	order []string
 }
@@ -61,9 +68,40 @@ func voicesFor(eng Engine, engine string) ([]Voice, error) {
 }
 
 // Cancel bumps the epoch: every synthesize call that has not produced
-// a result yet is discarded. Idempotent (a no-op when idle).
+// a result yet is discarded. Idempotent (a no-op when idle). The
+// in-flight engine call is aborted outright — engines that implement
+// ContextSynthesizer (GPT-SoVITS ref) close the HTTP request, which
+// releases the single-flight lock immediately instead of after the
+// zombie inference finishes on its own.
 func (s *Service) Cancel() {
 	s.epoch.Add(1)
+	s.cancelMu.Lock()
+	if s.currentSlot != nil {
+		s.currentSlot.cancel()
+	}
+	s.cancelMu.Unlock()
+}
+
+// engineCancelSlot identifies one in-flight engine call; funcs cannot be
+// compared in Go, so the slot pointer is the ownership token.
+type engineCancelSlot struct{ cancel context.CancelFunc }
+
+// beginEngineCall installs the cancel func for the engine call the
+// caller is about to make under s.mu. The returned func clears it.
+func (s *Service) beginEngineCall() (context.Context, func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	slot := &engineCancelSlot{cancel: cancel}
+	s.cancelMu.Lock()
+	s.currentSlot = slot
+	s.cancelMu.Unlock()
+	return ctx, func() {
+		s.cancelMu.Lock()
+		if s.currentSlot == slot {
+			s.currentSlot = nil
+		}
+		s.cancelMu.Unlock()
+		cancel()
+	}
 }
 
 func cacheKey(in SynthesizeInput) string {
@@ -104,7 +142,9 @@ func (s *Service) Synthesize(in SynthesizeInput) (SynthesizeResultOut, error) {
 		return SynthesizeResultOut{Result: hit}, nil
 	}
 
-	res, voiceFallback, err := s.engine.Synthesize(in)
+	ctx, done := s.beginEngineCall()
+	res, voiceFallback, err := synthesizeWithCancel(ctx, s.engine, in)
+	done()
 	if err != nil {
 		// A segment queued behind a cancel may surface as an engine
 		// error; report it as discarded so the caller stays quiet.
@@ -164,7 +204,12 @@ func (s *Service) Stream(ctx context.Context, in SynthesizeInput, emit func([]by
 	if streamer, ok := s.engine.(ChunkStreamer); ok {
 		res, voiceFallback, err = streamer.SynthesizeStream(ctx, in, guarded)
 	} else {
-		res, voiceFallback, err = s.engine.Synthesize(in)
+		// Non-streamer engines still hold the single-flight lock for the
+		// whole synthesis; route them through the same interruptible
+		// engine call so a cancel releases the lock at once.
+		callCtx, doneCall := s.beginEngineCall()
+		res, voiceFallback, err = synthesizeWithCancel(callCtx, s.engine, in)
+		doneCall()
 		if err == nil && res.WavBase64 != "" {
 			if raw, decErr := base64.StdEncoding.DecodeString(res.WavBase64); decErr == nil {
 				err = guarded(raw)
