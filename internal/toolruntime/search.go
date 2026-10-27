@@ -191,6 +191,12 @@ func (r *Runtime) FirstOrganicOnPage(ctx context.Context, pageURL string) (strin
 	body := string(page.Body)
 	hits := webfetch.ParseBingResults(body, 5)
 	if len(hits) == 0 {
+		hits = webfetch.ParseBaiduResults(body, 5)
+	}
+	if len(hits) == 0 {
+		hits = webfetch.ParseSogouResults(body, 5)
+	}
+	if len(hits) == 0 {
 		hits = webfetch.ParseSearchResults(body, 5)
 	}
 	for _, hit := range hits {

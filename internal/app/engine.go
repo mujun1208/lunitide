@@ -401,6 +401,11 @@ type streamState struct {
 	// (media.* tool or an owned media-center goal). Bare continue words
 	// ("下一首") only count as session actions while it is true (G-306).
 	mediaSessionActive bool
+	// pendingObstacleHosts: hosts whose direct fetch hit a login wall or
+	// anti-crawl obstacle this turn. They settle into project semantic
+	// memory once an alternate path (web.search) succeeds, so later turns
+	// route the proven way instead of re-burning the walled source.
+	pendingObstacleHosts map[string]bool
 }
 
 type streamLifecycle uint8

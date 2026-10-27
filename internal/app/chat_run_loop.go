@@ -2012,7 +2012,13 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 					// (file-just-opened, web evidence, G-308 failure counts)
 					// for the next gate evaluations. Match by call ID so
 					// parallel calls each fold their own result.
-					updateSignalsAfterTool(&state.signals, call.Name, call.Arguments, toolOutputFor(req.Messages, call.ID))
+					toolOutput := toolOutputFor(req.Messages, call.ID)
+					updateSignalsAfterTool(&state.signals, call.Name, call.Arguments, toolOutput)
+					// capability-self-bootstrap P5: track datasource obstacles
+					// (login walls, anti-crawl 403s) and settle them into
+					// project memory once an alternate path succeeds, so the
+					// next similar query routes the proven way.
+					e.observeDatasourceObstacle(ctx, sessionID, call.Name, call.Arguments, toolOutput, state)
 				}
 				if draft := strings.TrimSpace(assistantText.String()); draft != "" {
 					turn.PersistDraft = draft

@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"log"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -43,13 +44,38 @@ type stateSignals struct {
 	// LookupIntentLowConfidence: flash said NONE or the route is unspecified
 	// — budget baselines go conservative (FR-200 already handles it).
 	LookupIntentLowConfidence bool
-	// ToolFailures: total failed tool calls this turn (ok:false results).
-	// G-308's total stop-loss arms at 4.
+	// ToolFailures: failed tool calls this turn that look like channel faults
+	// (ok:false results minus datasource obstacles). G-308's total stop-loss
+	// arms at 4.
 	ToolFailures int
+	// ObstacleFailures: failed tool calls this turn that were datasource-local
+	// obstacles — login walls, anti-crawl 401/403, captcha/verification
+	// interstitials. They are properties of one URL/source, not of the
+	// channel, so they are excluded from the G-308 stop-loss budget: the model
+	// keeps its routing freedom to switch sources instead of being stopped.
+	ObstacleFailures int
 	// LastFailedTool / LastFailStreak: the tool failing most recently and
-	// how many times in a row. G-308 blocks its 3rd retry.
+	// how many times in a row (channel faults only — obstacle failures never
+	// touch the streak). G-308 blocks its 3rd retry.
 	LastFailedTool string
 	LastFailStreak int
+}
+
+// obstacleFailureRe matches the signature of a datasource-local obstacle in
+// a failed tool output: an HTTP 401/403 rejection (prefixed by a space or
+// colon so URL path segments like /403.html do not match), a login wall, a
+// captcha or browser-verification interstitial, or an anti-crawl block.
+var obstacleFailureRe = regexp.MustCompile(`(?i)[ :](401|403)\b|forbidden|unauthorized|登录|login|验证码|captcha|人机验证|安全验证|反爬|anti.?crawl|antispider|wappass|browser verification`)
+
+// datasourceObstacleFailure reports whether a failed tool output describes
+// a datasource-local obstacle (login wall, anti-crawl 401/403, verification
+// page) rather than an environment fault (timeout, offline, reset). The
+// G-308 stop-loss exists for the latter: a broken web stack must not burn
+// the agent budget on retries. An obstacle only proves one URL is walled —
+// switching source is the legal next step, so obstacle failures leave the
+// stop-loss budget and the per-tool streak untouched.
+func datasourceObstacleFailure(output string) bool {
+	return obstacleFailureRe.MatchString(output)
 }
 
 // collectTurnSignals gathers the turn-start signals (PRD 4.3). Called once
@@ -279,12 +305,12 @@ func evalToolGate(sig stateSignals, goal string, toolName string, args json.RawM
 // journalGate writes the interception record (PRD 4.4): gate id, signal
 // snapshot, tool name. The unified audit consumer reads these lines.
 func journalGate(streamID, gateID, toolName string, sig stateSignals) {
-	log.Printf("chat.gate stream=%s gate=%s tool=%s signals=materials:%t,gen:%t,council:%t,fileOpen:%t,media:%t,ticket:%t,budget:%t,lowConf:%t,failures:%d,lastFail:%s/%d",
+	log.Printf("chat.gate stream=%s gate=%s tool=%s signals=materials:%t,gen:%t,council:%t,fileOpen:%t,media:%t,ticket:%t,budget:%t,lowConf:%t,failures:%d,obstacles:%d,lastFail:%s/%d",
 		streamID, gateID, toolName,
 		sig.HasMaterials, sig.GenerationRequested, sig.CouncilMountedGE2,
 		sig.FileJustOpened, sig.MediaContinueAction, sig.TicketQueryNoSource,
 		sig.BudgetNearExhausted, sig.LookupIntentLowConfidence,
-		sig.ToolFailures, sig.LastFailedTool, sig.LastFailStreak)
+		sig.ToolFailures, sig.ObstacleFailures, sig.LastFailedTool, sig.LastFailStreak)
 }
 
 // gateOfficePipelineOwns reports whether the office pipeline's own stage
@@ -306,15 +332,24 @@ func updateSignalsAfterTool(sig *stateSignals, name string, args json.RawMessage
 	// later success of the same tool clears its streak; a different tool's
 	// outcome leaves the streak untouched. Gate denials ("ok:false\n[闸口")
 	// are refusals, not faults — they must not pollute the failure count.
+	// Datasource-local obstacles (login walls, anti-crawl 401/403, captcha
+	// pages) are not channel faults either: they route around (switch
+	// source), so they never burn the stop-loss budget nor arm the
+	// per-channel streak — the next call of the same tool on a different
+	// URL must stay legal.
 	out := strings.TrimSpace(output)
 	failed := strings.HasPrefix(out, "ok:false") && !strings.HasPrefix(out, "ok:false\n[闸口")
 	if failed {
-		sig.ToolFailures++
-		if sig.LastFailedTool == name {
-			sig.LastFailStreak++
+		if datasourceObstacleFailure(out) {
+			sig.ObstacleFailures++
 		} else {
-			sig.LastFailedTool = name
-			sig.LastFailStreak = 1
+			sig.ToolFailures++
+			if sig.LastFailedTool == name {
+				sig.LastFailStreak++
+			} else {
+				sig.LastFailedTool = name
+				sig.LastFailStreak = 1
+			}
 		}
 	} else if name == sig.LastFailedTool && !strings.HasPrefix(out, "ok:false") {
 		sig.LastFailedTool = ""

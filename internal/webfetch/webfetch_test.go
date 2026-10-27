@@ -297,7 +297,7 @@ func TestRenderSearchHTMLEscapesAndLists(t *testing.T) {
 func TestSearchAttemptsLadderOrder(t *testing.T) {
 	t.Parallel()
 	attempts := SearchAttempts("hello world")
-	if len(attempts) != 3 {
+	if len(attempts) != 5 {
 		t.Fatalf("attempts=%d: %+v", len(attempts), attempts)
 	}
 	if attempts[0].Source != "duckduckgo" || attempts[0].URL != SearchURL("hello world") {
@@ -308,6 +308,148 @@ func TestSearchAttemptsLadderOrder(t *testing.T) {
 	}
 	if attempts[2].Source != "bing" || attempts[2].URL != BingSearchURL("hello world") {
 		t.Fatalf("third=%+v", attempts[2])
+	}
+	// Overseas-first ladder keeps the domestic engines as last-resort tails.
+	if attempts[3].Source != "baidu" || attempts[3].URL != BaiduSearchURL("hello world") {
+		t.Fatalf("fourth=%+v", attempts[3])
+	}
+	if attempts[4].Source != "sogou" || attempts[4].URL != SogouSearchURL("hello world") {
+		t.Fatalf("fifth=%+v", attempts[4])
+	}
+}
+
+// TestSearchAttemptsChineseQueryLeadsWithDomesticEngines pins the
+// determinism fix for mainland queries: when the query is written in
+// Chinese, Baidu and Sogou answer first so an overseas network failure
+// cannot zero out the search, and the overseas engines become fallbacks.
+func TestSearchAttemptsChineseQueryLeadsWithDomesticEngines(t *testing.T) {
+	t.Parallel()
+	for _, query := range []string{"中航材利顿公司信息", "查一下 公司 背景", "公司 info"} {
+		attempts := SearchAttempts(query)
+		if len(attempts) != 5 {
+			t.Fatalf("query %q attempts=%d: %+v", query, len(attempts), attempts)
+		}
+		if attempts[0].Source != "baidu" || attempts[0].URL != BaiduSearchURL(query) {
+			t.Fatalf("query %q first=%+v", query, attempts[0])
+		}
+		if attempts[1].Source != "sogou" || attempts[1].URL != SogouSearchURL(query) {
+			t.Fatalf("query %q second=%+v", query, attempts[1])
+		}
+		var sawOverseas bool
+		for _, a := range attempts[2:] {
+			if a.Source == "duckduckgo" || a.Source == "bing" {
+				sawOverseas = true
+			}
+		}
+		if !sawOverseas {
+			t.Fatalf("query %q lost overseas fallbacks: %+v", query, attempts)
+		}
+	}
+}
+
+const baiduPage = `<div id="content_left">
+<div class="result c-container new-pmd" srcid="1599" tpl="se_com_default" mu="https://news.example/zhounian">
+<h3 class="c-title t"><a href="https://www.baidu.com/link?url=aabb" target="_blank">公司<em>周年</em>报道</a></h3>
+<div class="c-abstract">成立于2005年的<em>高新技术企业</em>，主营航空材料。</div>
+</div>
+<div class="result result-op c-container" mu="https://baike.baidu.com/item/x">
+<h3 class="t c-title"><a href="/link?url=ccdd">公司_百度百科</a></h3>
+<div class="c-abstract">百科词条收录企业基本信息。</div>
+</div>
+<div class="result c-container"><h3 class="c-title"><a href="https://www.baidu.com/">百度首页</a></h3><div class="c-abstract">nav</div></div>
+</div>`
+
+func TestParseBaiduResultsExtractsOrganicLinks(t *testing.T) {
+	t.Parallel()
+	results := ParseBaiduResults(baiduPage, 10)
+	if len(results) != 2 {
+		t.Fatalf("results=%d %+v", len(results), results)
+	}
+	// mu carries the real target URL, not the /link redirect wrapper.
+	if results[0].URL != "https://news.example/zhounian" || results[0].Title != "公司周年报道" {
+		t.Fatalf("first=%+v", results[0])
+	}
+	if results[0].Snippet != "成立于2005年的高新技术企业，主营航空材料。" {
+		t.Fatalf("snippet=%q", results[0].Snippet)
+	}
+	// Site-relative /link hrefs are absolutized so a later fetch can follow
+	// them when mu is absent... here mu is present, so the wrapper must not win.
+	if results[1].URL != "https://baike.baidu.com/item/x" || results[1].Title != "公司_百度百科" {
+		t.Fatalf("second=%+v", results[1])
+	}
+}
+
+// baiduWrapperPage has no mu attributes: the /link redirect wrapper is the
+// only URL each result carries, so it must pass through absolutized.
+const baiduWrapperPage = `<div id="content_left">
+<div class="result c-container"><h3 class="c-title t"><a href="/link?url=eeff">标题甲</a></h3><div class="c-abstract">摘要甲</div></div>
+<div class="result c-container"><h3 class="c-title t"><a href="https://www.baidu.com/link?url=gghh">标题乙</a></h3><span class="content-right_8Zs40">摘要乙</span></div>
+</div>`
+
+func TestParseBaiduResultsFallsBackToLinkWrappers(t *testing.T) {
+	t.Parallel()
+	results := ParseBaiduResults(baiduWrapperPage, 10)
+	if len(results) != 2 {
+		t.Fatalf("results=%d %+v", len(results), results)
+	}
+	if results[0].URL != "https://www.baidu.com/link?url=eeff" || results[0].Title != "标题甲" {
+		t.Fatalf("first=%+v", results[0])
+	}
+	if results[1].URL != "https://www.baidu.com/link?url=gghh" || results[1].Title != "标题乙" {
+		t.Fatalf("second=%+v", results[1])
+	}
+	if results[1].Snippet != "摘要乙" {
+		t.Fatalf("new-markup snippet=%q", results[1].Snippet)
+	}
+}
+
+func TestParseBaiduResultsToleratesMarkupChange(t *testing.T) {
+	t.Parallel()
+	for _, page := range []string{"", "<html><body>无结果</body></html>", `<div class="resultList"><p>别的东西</p></div>`} {
+		if got := ParseBaiduResults(page, 5); len(got) != 0 {
+			t.Fatalf("page %q yielded %+v", page, got)
+		}
+	}
+}
+
+const sogouPage = `<div class="results">
+<div class="vrwrap">
+<h3 class="vr-title"><a id="uigs_1" href="/link?url=rr1" target="_blank">企业<em>信用</em>报告</a></h3>
+<div class="str-text-info"><p class="str_info">公开的企业工商信息聚合。</p></div>
+</div>
+<div class="vrwrap">
+<h3 class="vr-title"><a href="//www.sogou.com/link?url=rr2">另一条结果</a></h3>
+<div class="fz-mid space-txt">第二条摘要。</div>
+</div>
+<div class="rb"><h3 class="pt"><a href="https://www.sogou.com/">搜狗首页</a></h3></div>
+</div>`
+
+func TestParseSogouResultsExtractsOrganicLinks(t *testing.T) {
+	t.Parallel()
+	results := ParseSogouResults(sogouPage, 10)
+	if len(results) != 2 {
+		t.Fatalf("results=%d %+v", len(results), results)
+	}
+	if results[0].URL != "https://www.sogou.com/link?url=rr1" || results[0].Title != "企业信用报告" {
+		t.Fatalf("first=%+v", results[0])
+	}
+	if results[0].Snippet != "公开的企业工商信息聚合。" {
+		t.Fatalf("snippet=%q", results[0].Snippet)
+	}
+	if results[1].URL != "https://www.sogou.com/link?url=rr2" || results[1].Title != "另一条结果" {
+		t.Fatalf("second=%+v", results[1])
+	}
+	if results[1].Snippet != "第二条摘要。" {
+		t.Fatalf("classic snippet=%q", results[1].Snippet)
+	}
+}
+
+func TestParseSogouResultsToleratesMarkupChange(t *testing.T) {
+	t.Parallel()
+	for _, page := range []string{"", "<html><body>无结果</body></html>"} {
+		if got := ParseSogouResults(page, 5); len(got) != 0 {
+			t.Fatalf("page %q yielded %+v", page, got)
+		}
 	}
 }
 
@@ -320,6 +462,14 @@ func TestParseSearchSourceDispatchesBySource(t *testing.T) {
 	bing := ParseSearchSource("bing", bingPage, 10)
 	if len(bing) != 2 || bing[0].URL != "https://news.example/jay" {
 		t.Fatalf("bing=%+v", bing)
+	}
+	baidu := ParseSearchSource("baidu", baiduPage, 10)
+	if len(baidu) != 2 || baidu[0].URL != "https://news.example/zhounian" {
+		t.Fatalf("baidu=%+v", baidu)
+	}
+	sogou := ParseSearchSource("sogou", sogouPage, 10)
+	if len(sogou) != 2 || sogou[0].URL != "https://www.sogou.com/link?url=rr1" {
+		t.Fatalf("sogou=%+v", sogou)
 	}
 	// Unknown source tags fall back to the DuckDuckGo parser.
 	if got := ParseSearchSource("other", ddgLitePage, 10); len(got) != 2 {
@@ -334,6 +484,11 @@ func TestChallengePageDetectsBotInterstitials(t *testing.T) {
 		`<html><form id='challenge-form'>prove you are human</form></html>`,
 		`<html><div class="anomaly-modal">blocked</div></html>`,
 		`<html><div id="b_captcha">captcha</div></html>`,
+		// Sogou antispider interstitial.
+		`<html><script src="https://www.sogou.com/antispider/script.js"></script></html>`,
+		// Baidu security verification interstitial.
+		`<html><head><title>百度安全验证</title></head><body>请输入验证码</body></html>`,
+		`<html><a href="https://wappass.baidu.com/captcha/login">验证</a></html>`,
 	} {
 		if !ChallengePage(body) {
 			t.Errorf("challenge not detected: %q", body)
@@ -344,6 +499,8 @@ func TestChallengePageDetectsBotInterstitials(t *testing.T) {
 		`<html><body>results that merely mention captcha bypass</body></html>`,
 		ddgLitePage,
 		bingPage,
+		baiduPage,
+		sogouPage,
 	} {
 		if ChallengePage(body) {
 			t.Errorf("false positive on %q", body)

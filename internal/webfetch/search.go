@@ -24,6 +24,14 @@ const SearchUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/5
 const BingSearchEndpoint = "https://www.bing.com/search"
 const BingCNSearchEndpoint = "https://cn.bing.com/search"
 
+// BaiduSearchEndpoint and SogouSearchEndpoint are the domestic keyless HTML
+// search sources. Overseas engines (DuckDuckGo, Bing mirrors) can be slow or
+// entirely unreachable on mainland connections, which used to leave a
+// Chinese-language query with zero sources when the network degraded; Baidu
+// and Sogou are served from inside the mainland, so they close that gap.
+const BaiduSearchEndpoint = "https://www.baidu.com/s"
+const SogouSearchEndpoint = "https://www.sogou.com/web"
+
 // SearchURL builds the search GET URL for query.
 func SearchURL(query string) string {
 	return SearchEndpoint + "?q=" + url.QueryEscape(query)
@@ -37,6 +45,16 @@ func BingSearchURL(query string) string {
 // BingCNSearchURL builds the cn.bing.com HTML search URL.
 func BingCNSearchURL(query string) string {
 	return BingCNSearchEndpoint + "?q=" + url.QueryEscape(query)
+}
+
+// BaiduSearchURL builds the Baidu HTML search URL.
+func BaiduSearchURL(query string) string {
+	return BaiduSearchEndpoint + "?wd=" + url.QueryEscape(query)
+}
+
+// SogouSearchURL builds the Sogou HTML search URL.
+func SogouSearchURL(query string) string {
+	return SogouSearchEndpoint + "?query=" + url.QueryEscape(query)
 }
 
 // SearchResult is one parsed organic result.
@@ -177,6 +195,296 @@ func bingTitleAnchor(block string) (href, title string) {
 	return firstHTTPAnchor(block)
 }
 
+// ParseBaiduResults extracts organic results from a Baidu HTML results page.
+// Organic containers mirror the real target URL in their mu attribute; the
+// headline anchor instead points at a /link?url= redirect wrapper, so the
+// parser prefers mu and falls back to the wrapper (a later fetch follows the
+// redirect). Parsing is tolerant: when the expected markup is absent the
+// page yields zero results rather than an error.
+func ParseBaiduResults(page string, max int) []SearchResult {
+	if max <= 0 {
+		max = 5
+	}
+	var results []SearchResult
+	rest := page
+	for len(results) < max {
+		idx := indexClassBlock(rest, "result")
+		if idx < 0 {
+			break
+		}
+		rest = rest[idx:]
+		next := indexClassBlock(rest[1:], "result")
+		block := rest
+		if next >= 0 {
+			block = rest[:1+next]
+			rest = rest[1+next:]
+		} else {
+			rest = ""
+		}
+		href := unwrapSearchRedirect(firstAttrValue(block, "mu"))
+		title := ""
+		if aHref, aTitle := baiduTitleAnchor(block); aTitle != "" {
+			title = aTitle
+			if href == "" {
+				href = aHref
+			}
+		}
+		if href == "" || title == "" || isBaiduNavURL(href) {
+			continue
+		}
+		results = append(results, SearchResult{
+			Title:   title,
+			URL:     href,
+			Snippet: baiduSnippet(block),
+		})
+	}
+	return results
+}
+
+// indexClassBlock returns the offset of the next class token (class="token"
+// boundaries only, so "result" matches "result c-container" and
+// "result-op" but not "results" or "result-list") in s, or -1.
+func indexClassBlock(s, token string) int {
+	needle := `class="` + token
+	needleLen := len(needle)
+	for off := 0; off < len(s); {
+		idx := strings.Index(s[off:], needle)
+		if idx < 0 {
+			return -1
+		}
+		at := off + idx
+		if at+needleLen >= len(s) || !isWordByte(s[at+needleLen]) {
+			return at
+		}
+		off = at + needleLen
+	}
+	return -1
+}
+
+// baiduTitleAnchor returns the headline anchor of one Baidu result block.
+// The href may be a site-relative /link redirect wrapper, which is
+// absolutized against www.baidu.com so a later fetch can follow it.
+func baiduTitleAnchor(block string) (href, title string) {
+	h := strings.Index(strings.ToLower(block), "<h3")
+	if h < 0 {
+		return "", ""
+	}
+	seg := block[h:]
+	open := strings.Index(strings.ToLower(seg), "<a")
+	if open < 0 {
+		return "", ""
+	}
+	tagEnd := strings.Index(seg[open:], ">")
+	if tagEnd < 0 {
+		return "", ""
+	}
+	tag := seg[open : open+tagEnd+1]
+	closeEnd := strings.Index(strings.ToLower(seg[open+tagEnd:]), "</a>")
+	if closeEnd < 0 {
+		return "", ""
+	}
+	text := seg[open+tagEnd+1 : open+tagEnd+closeEnd]
+	href = normalizeBaiduHref(attrValue(tag, "href"))
+	title = strings.TrimSpace(unescapeEntities(stripTags(text)))
+	return href, title
+}
+
+func normalizeBaiduHref(href string) string {
+	if strings.HasPrefix(href, "/") {
+		href = "https://www.baidu.com" + href
+	}
+	return unwrapSearchRedirect(href)
+}
+
+// isBaiduNavURL filters Baidu's own homepage/directory links. The /link
+// redirect wrappers are organic results, not navigation, so they stay.
+func isBaiduNavURL(href string) bool {
+	u, err := url.Parse(href)
+	if err != nil {
+		return true
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "hao.baidu.com" {
+		return true
+	}
+	if host == "baidu.com" || strings.HasSuffix(host, ".baidu.com") {
+		if p := strings.ToLower(u.Path); p == "" || p == "/" || p == "/more" {
+			return true
+		}
+	}
+	return false
+}
+
+// baiduSnippet reads the abstract of one result block: the classic
+// c-abstract div first, then the new content-right_* span markup, then any
+// first paragraph.
+func baiduSnippet(block string) string {
+	if s := snippetAfterToken(block, "c-abstract", "</div>"); s != "" {
+		return s
+	}
+	if s := snippetAfterToken(block, "content-right_", "</span>"); s != "" {
+		return s
+	}
+	return firstParagraph(block)
+}
+
+// ParseSogouResults extracts organic results from a Sogou HTML results page.
+// Modern results live in vrwrap containers (classic ones in class="rb"),
+// and headline anchors point at /link?url= redirect wrappers relative to
+// www.sogou.com which are absolutized so a later fetch can follow them.
+// Parsing is tolerant: unknown markup yields zero results.
+func ParseSogouResults(page string, max int) []SearchResult {
+	if max <= 0 {
+		max = 5
+	}
+	var results []SearchResult
+	rest := page
+	for len(results) < max {
+		idx := indexSogouBlock(rest)
+		if idx < 0 {
+			break
+		}
+		rest = rest[idx:]
+		next := indexSogouBlock(rest[1:])
+		block := rest
+		if next >= 0 {
+			block = rest[:1+next]
+			rest = rest[1+next:]
+		} else {
+			rest = ""
+		}
+		href, title := sogouTitleAnchor(block)
+		if href == "" || title == "" || isSogouNavURL(href) {
+			continue
+		}
+		results = append(results, SearchResult{
+			Title:   title,
+			URL:     href,
+			Snippet: sogouSnippet(block),
+		})
+	}
+	return results
+}
+
+func indexSogouBlock(s string) int {
+	vr := indexClassBlock(s, "vrwrap")
+	rb := indexClassBlock(s, "rb")
+	switch {
+	case vr < 0:
+		return rb
+	case rb < 0:
+		return vr
+	case vr < rb:
+		return vr
+	default:
+		return rb
+	}
+}
+
+// sogouTitleAnchor returns the headline anchor of one Sogou result block.
+func sogouTitleAnchor(block string) (href, title string) {
+	h := strings.Index(strings.ToLower(block), "<h3")
+	if h < 0 {
+		return "", ""
+	}
+	seg := block[h:]
+	open := strings.Index(strings.ToLower(seg), "<a")
+	if open < 0 {
+		return "", ""
+	}
+	tagEnd := strings.Index(seg[open:], ">")
+	if tagEnd < 0 {
+		return "", ""
+	}
+	tag := seg[open : open+tagEnd+1]
+	closeEnd := strings.Index(strings.ToLower(seg[open+tagEnd:]), "</a>")
+	if closeEnd < 0 {
+		return "", ""
+	}
+	text := seg[open+tagEnd+1 : open+tagEnd+closeEnd]
+	href = normalizeSogouHref(attrValue(tag, "href"))
+	title = strings.TrimSpace(unescapeEntities(stripTags(text)))
+	return href, title
+}
+
+func normalizeSogouHref(href string) string {
+	switch {
+	case strings.HasPrefix(href, "//"):
+		href = "https:" + href
+	case strings.HasPrefix(href, "/"):
+		href = "https://www.sogou.com" + href
+	}
+	return unwrapSearchRedirect(href)
+}
+
+// isSogouNavURL filters Sogou's own homepage links. The /link redirect
+// wrappers are organic results, not navigation, so they stay.
+func isSogouNavURL(href string) bool {
+	u, err := url.Parse(href)
+	if err != nil {
+		return true
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "sogou.com" || strings.HasSuffix(host, ".sogou.com") {
+		if p := strings.ToLower(u.Path); p == "" || p == "/" || p == "/web" {
+			return true
+		}
+	}
+	return false
+}
+
+// sogouSnippet reads the abstract of one result block: the modern
+// str-text-info div, then the classic fz-mid/space-txt div, then any first
+// paragraph.
+func sogouSnippet(block string) string {
+	if s := snippetAfterToken(block, "str-text-info", "</div>"); s != "" {
+		return s
+	}
+	if s := snippetAfterToken(block, "space-txt", "</div>"); s != "" {
+		return s
+	}
+	return firstParagraph(block)
+}
+
+// snippetAfterToken extracts the text of the element opened by the first
+// occurrence of token in block up to closeTag, tags stripped and entities
+// unescaped. Returns "" when token is absent or the element is empty.
+func snippetAfterToken(block, token, closeTag string) string {
+	idx := strings.Index(block, token)
+	if idx < 0 {
+		return ""
+	}
+	seg := block[idx:]
+	gt := strings.Index(seg, ">")
+	if gt < 0 {
+		return ""
+	}
+	raw := seg[gt+1:]
+	end := strings.Index(raw, closeTag)
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(unescapeEntities(stripTags(raw[:end])))
+}
+
+// firstAttrValue extracts the value of attr from the first tag in s that
+// carries it, double- or single-quoted.
+func firstAttrValue(s, attr string) string {
+	lower := strings.ToLower(s)
+	for _, quote := range []byte{'"', '\''} {
+		needle := attr + "=" + string(quote)
+		idx := strings.Index(lower, needle)
+		if idx < 0 {
+			continue
+		}
+		start := idx + len(needle)
+		if end := strings.IndexByte(s[start:], quote); end >= 0 {
+			return s[start : start+end]
+		}
+	}
+	return ""
+}
+
 // SearchAttempt is one keyless HTML search endpoint to try, in fallback
 // order, tagged with the source its results are parsed by.
 type SearchAttempt struct {
@@ -184,23 +492,55 @@ type SearchAttempt struct {
 	Source string
 }
 
-// SearchAttempts returns the fallback ladder for query: DuckDuckGo Lite
-// first, then the Bing mirrors. The ladder is shared by the tool runtime
-// and the agent-run evidence path so both degrade the same way when one
-// source is slow, blocked or serving a challenge page.
+// containsCJK reports whether s carries Han runes — a query written in
+// Chinese almost always originates on a mainland network, where the
+// domestic engines are the reliable path and the overseas ones are the
+// uncertain fallback.
+func containsCJK(s string) bool {
+	for _, r := range s {
+		if r >= 0x4E00 && r <= 0x9FFF {
+			return true
+		}
+	}
+	return false
+}
+
+// SearchAttempts returns the fallback ladder for query. A Chinese-language
+// query leads with the domestic engines (Baidu, Sogou) because overseas
+// engines are the sources that degrade on mainland networks; anything else
+// keeps the original overseas order with the domestic engines as last-resort
+// tails. The ladder is shared by the tool runtime and the agent-run evidence
+// path so both degrade the same way when one source is slow, blocked or
+// serving a challenge page.
 func SearchAttempts(query string) []SearchAttempt {
+	if containsCJK(query) {
+		return []SearchAttempt{
+			{URL: BaiduSearchURL(query), Source: "baidu"},
+			{URL: SogouSearchURL(query), Source: "sogou"},
+			{URL: BingCNSearchURL(query), Source: "bing"},
+			{URL: SearchURL(query), Source: "duckduckgo"},
+			{URL: BingSearchURL(query), Source: "bing"},
+		}
+	}
 	return []SearchAttempt{
 		{URL: SearchURL(query), Source: "duckduckgo"},
 		{URL: BingCNSearchURL(query), Source: "bing"},
 		{URL: BingSearchURL(query), Source: "bing"},
+		{URL: BaiduSearchURL(query), Source: "baidu"},
+		{URL: SogouSearchURL(query), Source: "sogou"},
 	}
 }
 
 // ParseSearchSource extracts organic results from a search page body by
 // the source tag of the attempt that fetched it.
 func ParseSearchSource(source, page string, max int) []SearchResult {
-	if source == "bing" {
+	switch source {
+	case "bing":
 		return ParseBingResults(page, max)
+	case "baidu":
+		return ParseBaiduResults(page, max)
+	case "sogou":
+		return ParseSogouResults(page, max)
 	}
 	return ParseSearchResults(page, max)
 }
@@ -211,7 +551,14 @@ func ParseSearchSource(source, page string, max int) []SearchResult {
 func ChallengePage(body string) bool {
 	// Match challenge markup, not incidental result text mentioning captcha.
 	lower := strings.ToLower(body)
-	for _, marker := range []string{`id="challenge-form"`, `id='challenge-form'`, `id="anomaly-modal"`, `class="anomaly-modal`, `id="b_captcha"`, `id='b_captcha'`} {
+	for _, marker := range []string{
+		`id="challenge-form"`, `id='challenge-form'`, `id="anomaly-modal"`, `class="anomaly-modal`, `id="b_captcha"`, `id='b_captcha'`,
+		// Sogou antispider interstitial (script/asset references plus the
+		// verification form).
+		`antispider`,
+		// Baidu security verification / login-wall interstitials.
+		`wappass.baidu.com`, `百度安全验证`,
+	} {
 		if strings.Contains(lower, marker) {
 			return true
 		}

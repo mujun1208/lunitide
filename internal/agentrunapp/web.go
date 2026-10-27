@@ -159,9 +159,10 @@ func (s *Service) WebFetch(ctx context.Context, key, actor string, request any, 
 	return result, err
 }
 
-// WebSearch runs one query through the keyless HTML search ladder
-// (DuckDuckGo Lite, then the Bing mirrors) on the same SSRF-pinned
-// transport and records the result-set evidence from the winning source.
+// WebSearch runs one query through the keyless HTML search ladder (domestic
+// Baidu/Sogou first for Chinese queries, then the overseas engines) on the
+// same SSRF-pinned transport and records the result-set evidence from the
+// winning source.
 func (s *Service) WebSearch(ctx context.Context, key, actor string, request any, in WebSearchInput) (WebSearchResult, error) {
 	if !providerapp.ValidIdempotencyKey(key) {
 		return WebSearchResult{}, ErrIdempotencyKeyRequired

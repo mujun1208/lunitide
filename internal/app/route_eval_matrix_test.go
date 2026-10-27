@@ -392,6 +392,77 @@ func TestSignalsFoldAfterTool(t *testing.T) {
 	}
 }
 
+// TestSignalsFoldClassifiesDatasourceObstacles pins the G-308 determinism
+// fix: login walls and anti-crawl 401/403/verification failures are
+// properties of one walled URL, not channel faults — they must not burn the
+// environment stop-loss budget nor arm the per-channel streak, or a
+// mainland lookup that bounced off two login walls would lose the model's
+// routing freedom mid-turn.
+func TestSignalsFoldClassifiesDatasourceObstacles(t *testing.T) {
+	for _, out := range []string{
+		"ok:false\nurl: https://aiqicha.baidu.com/firm/xxx.html\nHTTP 403",
+		"ok:false\nurl: https://qcc.com/firm\n403 Forbidden",
+		"ok:false\nurl: https://example.com/login-wall\n401 unauthorized",
+		"ok:false\n该页面需要登录后才能查看",
+		"ok:false\nweb search bing requires browser verification; no search results confirmed",
+		"ok:false\nweb search bing returned HTTP 403; no search results confirmed",
+		"ok:false\n触发反爬拦截 antispider",
+		"ok:false\n请输入验证码",
+	} {
+		sig := stateSignals{}
+		updateSignalsAfterTool(&sig, "web.fetch", nil, out)
+		if sig.ToolFailures != 0 || sig.LastFailStreak != 0 {
+			t.Errorf("obstacle folded as fault: out=%q failures=%d streak=%d", out, sig.ToolFailures, sig.LastFailStreak)
+		}
+		if sig.ObstacleFailures != 1 {
+			t.Errorf("obstacle not counted separately: out=%q obstacles=%d", out, sig.ObstacleFailures)
+		}
+	}
+	// Environment faults (and unclassified failures) still count.
+	for _, out := range []string{
+		"ok:false\nurl: https://example.com/x\ndial tcp: connection reset by peer",
+		"ok:false\nweb search duckduckgo context deadline exceeded",
+		"ok:false\n通道故障: web.search 不可用",
+		"ok:false\nexit 1",
+	} {
+		sig := stateSignals{}
+		updateSignalsAfterTool(&sig, "web.fetch", nil, out)
+		if sig.ToolFailures != 1 || sig.ObstacleFailures != 0 {
+			t.Errorf("env fault misclassified: out=%q failures=%d obstacles=%d", out, sig.ToolFailures, sig.ObstacleFailures)
+		}
+	}
+	// Obstacle failures leave the streak untouched, so the same tool stays
+	// legal for its next (different-URL) call; an interleaved env fault
+	// still arms the streak only from real faults.
+	sig := stateSignals{}
+	updateSignalsAfterTool(&sig, "web.fetch", nil, "ok:false\nurl: https://aiqicha.baidu.com/a\nHTTP 403")
+	updateSignalsAfterTool(&sig, "web.fetch", nil, "ok:false\nurl: https://qcc.com/b\nHTTP 403")
+	if sig.ToolFailures != 0 || sig.ObstacleFailures != 2 || sig.LastFailedTool != "" {
+		t.Fatalf("walls burned budget: %+v", sig)
+	}
+	updateSignalsAfterTool(&sig, "web.fetch", nil, "ok:false\ncontext deadline exceeded")
+	updateSignalsAfterTool(&sig, "web.fetch", nil, "ok:false\nurl: https://aiqicha.baidu.com/c\nHTTP 403")
+	if sig.ToolFailures != 1 || sig.LastFailStreak != 1 || sig.ObstacleFailures != 3 {
+		t.Fatalf("mixed fold wrong: %+v", sig)
+	}
+	// Four obstacles alone must not arm the G-308 total stop-loss; four
+	// env faults still must.
+	walls := stateSignals{}
+	for i := 0; i < 4; i++ {
+		updateSignalsAfterTool(&walls, "web.fetch", nil, "ok:false\nurl: https://x/\nHTTP 403")
+	}
+	if walls.ToolFailures != 0 || g308WouldDeny(walls, "web.fetch") {
+		t.Fatalf("walls armed stop-loss: %+v", walls)
+	}
+	envFaults := stateSignals{}
+	for i := 0; i < 4; i++ {
+		updateSignalsAfterTool(&envFaults, "web.fetch", nil, "ok:false\ndial tcp: connection reset")
+	}
+	if envFaults.ToolFailures != 4 {
+		t.Fatalf("env faults lost: %+v", envFaults)
+	}
+}
+
 // TestGateJournalFormat pins the journal line format (FR-300 audit).
 func TestGateJournalFormat(t *testing.T) {
 	// journalGate only logs; exercise it to make sure it does not panic on

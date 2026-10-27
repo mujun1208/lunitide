@@ -628,6 +628,49 @@ func TestG308ScenarioTotalStopLossAfterChannelHopping(t *testing.T) {
 	}
 }
 
+// TestG308ScenarioLoginWallsDoNotBurnStopLoss pins the 0.20.2 determinism
+// fix: login walls and anti-crawl 403s are datasource-local obstacles, not
+// channel faults. The model bounces off three walled company-data sites,
+// but the rerouted web.search on call 5 must still execute (the old total
+// stop-loss would have gated it after 4 failures) and the lookup lands.
+func TestG308ScenarioLoginWallsDoNotBurnStopLoss(t *testing.T) {
+	e, total, _ := g308ScenarioEngine(t, func(name string, call int) (toolruntime.Result, error) {
+		if name == "web.search" && call >= 2 {
+			return toolruntime.Result{Output: "ok:true\n北京支点互动科技有限公司：法定代表人张某，注册资本100万元（来自百度企业卡片）。results_url: https://www.baidu.com/s?wd=北京支点互动科技有限公司"}, nil
+		}
+		return toolruntime.Result{}, errors.New("HTTP 403: 该数据源需要登录")
+	})
+	modelCalls := 0
+	adapter := &routedExecutionAdapter{stream: func(llmadapter.Request) (llmadapter.Response, error) {
+		modelCalls++
+		calls := map[int][2]any{
+			1: {"web.search", json.RawMessage(`{"query":"北京支点互动科技有限公司","max":5}`)},
+			2: {"web.fetch", json.RawMessage(`{"url":"https://aiqicha.baidu.com/s?q=北京支点互动科技有限公司"}`)},
+			3: {"web.fetch", json.RawMessage(`{"url":"https://www.qcc.com/firm/xxx"}`)},
+			4: {"web.fetch", json.RawMessage(`{"url":"https://www.tianyancha.com/company/xxx"}`)},
+			5: {"web.search", json.RawMessage(`{"query":"北京支点互动科技有限公司","max":5}`)},
+		}
+		if c, ok := calls[modelCalls]; ok {
+			return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, ToolCalls: []llmadapter.ToolCall{
+				{ID: fmt.Sprintf("call-%d", modelCalls), Name: c[0].(string), Arguments: c[1].(json.RawMessage)},
+			}}}, nil
+		}
+		return llmadapter.Response{Message: llmadapter.Message{Role: llmadapter.RoleAssistant, Content: "查到了：北京支点互动科技有限公司，法定代表人张某，注册资本100万元。"}}, nil
+	}}
+	frames := runRoutedExecution(t, e, "北京支点互动科技有限公司", adapter)
+	if got := total(); got != 5 {
+		t.Fatalf("total tool executions = %d, want 5 (login walls must not gate the rerouted call)", got)
+	}
+	for _, s := range toolSummariesOf(frames) {
+		if strings.Contains(s, "G-308") {
+			t.Fatalf("login walls armed the stop-loss: %s", s)
+		}
+	}
+	if spoken := spokenTextOf(frames); !strings.Contains(spoken, "查到了") || strings.Contains(spoken, "环境故障") {
+		t.Fatalf("final answer = %s", spoken)
+	}
+}
+
 // TestG308ScenarioSuccessRecoversTheChannel pins the other side of the
 // stop-loss: intermittent failures (fail → success → fail → success) never
 // reach the 2-in-a-row threshold, so every retry stays legal and the lookup

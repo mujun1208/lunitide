@@ -149,6 +149,28 @@ func TestSearchAttemptTimeoutAllowsHealthyFallback(t *testing.T) {
 	}
 }
 
+// TestSearchChineseQueryRidesDomesticSources pins the mainland determinism
+// fix: a Chinese-language query leads with Baidu, so when the overseas
+// engines answer nothing the domestic source still resolves the query.
+func TestSearchChineseQueryRidesDomesticSources(t *testing.T) {
+	r, _ := New(t.TempDir())
+	var calls []string
+	r.SetWebFetcher(func(_ context.Context, rawURL string) (networkpolicy.FetchResult, error) {
+		calls = append(calls, rawURL)
+		if strings.Contains(rawURL, "baidu.com/s") {
+			return networkpolicy.FetchResult{Status: 200, Body: []byte(`<div class="result c-container" mu="https://news.example/co"><h3 class="c-title"><a href="https://www.baidu.com/link?url=x">公司新闻</a></h3><div class="c-abstract">摘要</div></div>`)}, nil
+		}
+		return networkpolicy.FetchResult{}, errors.New("overseas source unreachable")
+	})
+	result, err := r.searchWeb(context.Background(), "公司信息", 5)
+	if err != nil || result.Source != "baidu" || len(result.Results) != 1 || result.Results[0].URL != "https://news.example/co" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if len(calls) != 1 || !strings.Contains(calls[0], "baidu.com/s?wd=") {
+		t.Fatalf("domestic ladder must lead: %v", calls)
+	}
+}
+
 func TestSearchCachePreservesRetrievalTimeAndExpires(t *testing.T) {
 	r, _ := New(t.TempDir())
 	now := time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)
@@ -236,7 +258,7 @@ func TestSearchDoesNotCacheEmptyErrorOrVerificationPages(t *testing.T) {
 					t.Fatal("challenge disguised as no results")
 				}
 			}
-			if calls != 6 {
+			if calls != 10 {
 				t.Fatalf("failure was cached: calls=%d", calls)
 			}
 		})
