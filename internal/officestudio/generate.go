@@ -36,9 +36,19 @@ func Generate(spec Spec) ([]byte, error) {
 		if len(spec.Slides) == 0 || len(spec.Slides) > officetools.MaxPptxSlides {
 			return nil, ErrLimit
 		}
+		theme := ResolveTheme(brandForSpec(spec))
 		slides := make([]officetools.SlideSpec, len(spec.Slides))
 		tables := map[int][][]string{}
 		for i, s := range spec.Slides {
+			if len(s.Icons) > 0 {
+				materialized, err := materializeSlideIcons(s.Icons, theme.Teal)
+				if err != nil {
+					return nil, err
+				}
+				// Icons materialize ahead of user pictures so pictures stay on top.
+				s.Images = append(materialized, s.Images...)
+				spec.Slides[i] = s
+			}
 			if !validText(s.Title) || !validText(s.Subtitle) || !validText(s.Notes) {
 				return nil, ErrFormat
 			}
@@ -57,8 +67,34 @@ func Generate(spec Spec) ([]byte, error) {
 				}
 				tables[i] = s.Rows
 			}
+			var laid *officetools.SlideDiagram
+			if s.Diagram != nil {
+				if normalizeSemanticLayout(s.Layout) != "diagram" {
+					return nil, fmt.Errorf("%w: diagram payload requires the diagram layout", ErrFormat)
+				}
+				if len(s.Bullets) > 0 || len(s.Rows) > 0 || len(s.Images) > 0 || len(s.Charts) > 0 || len(s.Metrics) > 0 || len(s.Evidence) > 0 || s.Comparison != nil {
+					return nil, fmt.Errorf("%w: diagram slide cannot mix bullets, tables, images, charts, metrics, or comparison payloads", ErrFormat)
+				}
+				for _, n := range s.Diagram.Nodes {
+					if !validText(n.ID) || !validText(n.Label) || !validText(n.Kind) {
+						return nil, ErrFormat
+					}
+				}
+				for _, e := range s.Diagram.Edges {
+					if !validText(e.From) || !validText(e.To) || !validText(e.Label) {
+						return nil, ErrFormat
+					}
+				}
+				laid, err = layoutDiagram(s.Diagram)
+				if err != nil {
+					return nil, err
+				}
+			} else if normalizeSemanticLayout(s.Layout) == "diagram" {
+				return nil, fmt.Errorf("%w: diagram slide requires a diagram payload", ErrFormat)
+			}
 			s = keepSlideNarrative(s)
 			slides[i] = officetools.SlideSpec{Title: s.Title, Subtitle: s.Subtitle, Layout: normalizeSemanticLayout(s.Layout), Bullets: s.Bullets, Notes: s.Notes}
+			slides[i].Diagram = laid
 			if len(s.Metrics) > 0 {
 				slides[i].Metrics = make([]officetools.SlideMetric, len(s.Metrics))
 				for j, m := range s.Metrics {
@@ -84,7 +120,6 @@ func Generate(spec Spec) ([]byte, error) {
 				slides[i].Layout = "content"
 			}
 		}
-		theme := ResolveTheme(brandForSpec(spec))
 		data, err = officetools.GenStudioPptxThemed(spec.Title, slides, tables, officetools.SlideTheme{
 			Navy: theme.Navy, Teal: theme.Teal, Gold: theme.Gold, Paper: theme.Paper,
 			Ink: theme.Ink, Muted: theme.Muted, White: theme.White, Soft: theme.Soft,

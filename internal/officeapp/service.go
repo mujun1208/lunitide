@@ -165,6 +165,16 @@ func (s *Service) publish(ctx context.Context, taskID, artifactID, name, kind, m
 	}
 	inspection, err := content.Inspect(content.Kind(kind), data)
 	if err != nil {
+		// Import failures previously surfaced as the bare English sentinel
+		// ("office: content limit exceeded") and then collapsed into a generic
+		// "办公操作失败" at the bridge. Name the actual cause and size so the
+		// user knows the file, not the feature, must change.
+		if errors.Is(err, content.ErrLimit) {
+			return domain.Version{}, fmt.Errorf("导入的 %s 文件 %.1f MB 超过办公引擎上限（文件最大 %d MB，单个部件最大 %d MB，解压总量最大 %d MB）。请压缩媒体或拆分文件后重新上传：%w", strings.ToUpper(kind), float64(len(data))/(1<<20), content.MaxInputBytes/(1<<20), content.MaxPartBytes/(1<<20), content.MaxExpandedBytes/(1<<20), err)
+		}
+		if errors.Is(err, content.ErrFormat) {
+			return domain.Version{}, fmt.Errorf("这份 %s 文件无法解析（可能已加密、损坏或不是标准 Office 格式），不能作为底稿导入：%w", kind, err)
+		}
 		return domain.Version{}, err
 	}
 	// Even unsafe imports remain inert snapshots. They are visibly blocked;
@@ -344,7 +354,7 @@ func (s *Service) Check(ctx context.Context, taskID, versionID string, render bo
 	if v.Kind == "pdf" {
 		pdf = b
 	}
-	checks = applyUsabilityChecks(checks, pdf)
+	checks = applyUsabilityChecks(ctx, checks, pdf, len(published.Slides), render)
 	specFacts := content.FactsFromSpec(published)
 	report := evaluateOfficeQuality(checks, specFacts)
 	evidence["qualityReport"] = report

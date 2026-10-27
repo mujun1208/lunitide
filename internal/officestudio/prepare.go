@@ -157,6 +157,7 @@ func applyLayoutPlanning(spec Spec) (Spec, error) {
 				next.Images = nil
 				next.Charts = nil
 				next.Rows = nil
+				next.Icons = nil
 			}
 			next.Title = p.Title
 			next.Layout = p.Layout

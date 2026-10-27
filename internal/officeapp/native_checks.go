@@ -1,6 +1,7 @@
 package officeapp
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -73,22 +74,38 @@ func upsertOfficeCheck(checks []domain.Check, next domain.Check) []domain.Check 
 	return append(checks, next)
 }
 
-func applyUsabilityChecks(checks []domain.Check, pdf []byte) []domain.Check {
+// applyUsabilityChecks runs the optional usability chain. rasterize gates
+// per-page rasterization: it is reserved for explicit validation requests
+// (Check with render=true) so publication-time checks never spawn page
+// renderers for every imported file.
+func applyUsabilityChecks(ctx context.Context, checks []domain.Check, pdf []byte, sourcePages int, rasterize bool) []domain.Check {
 	pdfa := content.IndependentPDFACheck(pdf)
 	visionReq := content.VisualModelRequest{Configured: content.VisionModelConfigured()}
-	if len(pdf) > 0 && visionReq.Configured {
-		if pages, err := content.ExtractVisualPages(pdf); err == nil && len(pages) > 0 {
-			visionReq.Pages = pages
-			visionReq.Review = content.RunConfiguredVisualReview
+	var pages [][]byte
+	if rasterize && len(pdf) > 0 {
+		if extracted, err := content.ExtractVisualPages(ctx, pdf); err == nil && len(extracted) > 0 {
+			pages = extracted
+			if visionReq.Configured {
+				visionReq.Pages = pages
+				visionReq.Review = content.RunConfiguredVisualReview
+			}
 		}
 	}
 	vision := content.VisualModelCheck(visionReq)
 	checks = upsertOfficeCheck(checks, domain.Check{
 		ID: pdfa.ID, Label: officeCheckLabel(pdfa.ID), Status: pdfa.Status, Required: false, Detail: pdfa.Message,
 	})
-	return upsertOfficeCheck(checks, domain.Check{
+	checks = upsertOfficeCheck(checks, domain.Check{
 		ID: vision.ID, Label: officeCheckLabel(vision.ID), Status: vision.Status, Required: false, Detail: vision.Message,
 	})
+	// Deterministic pixel QA runs on every render we can actually produce,
+	// independent of whether an external vision model is configured.
+	for _, c := range content.RenderedPageQA(pages, sourcePages) {
+		checks = upsertOfficeCheck(checks, domain.Check{
+			ID: c.ID, Label: officeCheckLabel(c.ID), Status: c.Status, Required: false, Detail: c.Message,
+		})
+	}
+	return checks
 }
 
 func visualModelCoverageCheck() domain.Check {
@@ -124,6 +141,8 @@ func officeCheckLabel(id string) string {
 		"target-wps":           "WPS 打开验证",
 		"target-libreoffice":   "LibreOffice 界面打开验证",
 		"visual-model":         "视觉模型诊断",
+		"render-pixel-qa":      "逐页像素检查",
+		"render-border-ink":    "页面边框溢墨",
 		"pdfa":                 "PDF/A 合规",
 		"independent_pdf":      "独立 PDF",
 		"pdf-parse":            "PDF 页树解析",

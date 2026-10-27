@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -264,5 +265,22 @@ func TestOfficeStorageRealSweepLostResponseDoesNotDeleteNextBatch(t *testing.T) 
 	next, err := svc.SweepStorage(ctx, opts)
 	if err != nil || next.Removed != 1 {
 		t.Fatalf("new click failed: %+v %v", next, err)
+	}
+}
+
+// A 40 MB designed template sailed through upload and only blew up at
+// office.artifact.import with an opaque "办公操作失败". The limit still
+// exists (now 128 MB), but the refusal must name the engine and the size so
+// the user knows the file, not the feature, must change.
+func TestImportOversizeNamesEngineLimit(t *testing.T) {
+	svc, _, task := studioServiceFixture(t)
+	ctx := context.Background()
+	huge := make([]byte, content.MaxInputBytes+1)
+	_, err := svc.Import(ctx, task.ID, "", "big-template.pptx", huge, "", 0, "oversize")
+	if !errors.Is(err, content.ErrLimit) {
+		t.Fatalf("oversized import must fail with ErrLimit: %v", err)
+	}
+	if !strings.Contains(err.Error(), "超过办公引擎上限") || !strings.Contains(err.Error(), "PPTX") {
+		t.Fatalf("oversized import must name the engine limit and kind: %v", err)
 	}
 }

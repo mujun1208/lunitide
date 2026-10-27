@@ -164,6 +164,19 @@ describe('bounded Office byte transport', () => {
     expect(bridge.begin).not.toHaveBeenCalled();
   });
 
+  it('rejects files above the 128 MB office engine import limit before upload begins', async () => {
+    const bridge = attachments(),
+      office = api();
+    // A designed template can pass the 500 MiB attachment cap yet still
+    // fail at office.artifact.import; refuse it up front with the reason.
+    const heavy = new File(['PK'], 'big-template.pptx');
+    Object.defineProperty(heavy, 'size', { value: 200 * 1024 * 1024 });
+    await expect(
+      uploadOfficeFiles(bridge, office, task, 'project', [heavy], vi.fn(), new AbortController().signal),
+    ).rejects.toThrow('办公引擎导入上限 128 MB');
+    expect(bridge.begin).not.toHaveBeenCalled();
+  });
+
   it('assembles only complete bounded PDF chunks', async () => {
     const office = api(),
       pdf = '%PDF-1.7\ncontent\n%%EOF';

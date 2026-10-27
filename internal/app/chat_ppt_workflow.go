@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"strings"
 	"unicode/utf8"
 
@@ -10,10 +11,10 @@ import (
 )
 
 // Product-side PPT pipeline. A prompt alone cannot force tool loops, so
-// runStream tracks stages, shows them in 思考, blocks early pptx.gen, and
-// nudges until research + copy exist. Stages:
+// runStream tracks stages, shows them in 思考, blocks early pptx.gen and
+// office.generate(pptx), and nudges until research + copy exist. Stages:
 //  1. 思考 clarify  2. 定义结构  3. 梳理写内容  4. 收集素材
-//  5. 再思考  6. 再收集素材  7. 思考创作  8. 写完整页  9. pptx.gen
+//  5. 再思考  6. 再收集素材  7. 思考创作  8. 写完整页  9. office.generate 成稿
 const (
 	pptStageClarify   = "clarify"
 	pptStageOutline   = "outline"
@@ -28,24 +29,23 @@ const (
 	maxPptNudges = 6
 
 	pptPipelineInstruction = "\n\n[PPT 九步流水线 · 产品强制]\n" +
-		"做演示必须按序走完，禁止跳到 pptx.gen：\n" +
+		"做演示必须按序走完，禁止跳到 office.generate 或 pptx.gen：\n" +
 		"1) 思考：用 todo.write 记下受众、时长、文类、语气、密度、页数。\n" +
 		"2) 定义结构：先输出封面/目录/分节/收尾大纲（mermaid flowchart，节点双引号+<br/>），再继续。\n" +
 		"3) 梳理写内容：为每一页写主张标题 + 3-5 条要点 + 演讲备注。\n" +
-		"4) 收集素材：必须 web.search，需要原文再 web.fetch；可选用 image.generate 做封面图。禁止编造数据与出处。\n" +
+		"4) 收集素材：必须 web.search，需要原文再 web.fetch；可选用 image.generate 做封面图（生成后可在 office.generate 的 slides[].images 里用 sourceId+sha256 引用）。禁止编造数据与出处。\n" +
 		"5) 再思考：对照网上素材改结构，删空话页。\n" +
 		"6) 再收集素材：第二次 web.search 或 web.fetch 补缺口。\n" +
-		"7) 思考创作：每页选 cover、section、agenda、content、metrics、comparison、quote、timeline 或 closing。深色底必须浅色字。不要整本都是要点列表，不要问风格或品牌。\n" +
+		"7) 思考创作：每页选 cover、section、agenda、content、two-column、comparison、quote、metrics、timeline、closing、table、conclusion、trend、structure、process、evidence 或 diagram。深色底必须浅色字。数字进 metrics，对照放 comparison，引用放 quote，流程放 process/timeline，趋势放 trend（trend 页必须配 charts 折线/柱状图呈现变化），层级放 structure，结论页 conclusion，证据页 evidence，数据表用 table，系统/审批/依赖等有向关系画 diagram（slides[].diagram 传 nodes+edges，2–12 节点、无环，连接语义写 edge label）。不要整本都是要点列表，不要问风格或品牌。\n" +
 		"8) 写完整 PPT：每一页都有可见标题和正文，禁止空画布。\n" +
-		"9) 最后生成：正文齐了才 pptx.gen。先 catalog=true。模板版式合适才用 pages 按形状改字；不合适不要传 pages，每页用 cover、section、agenda、content、metrics、comparison、quote、timeline 或 closing。数字放 metrics，对照放 comparison，引用放 quote，出处放 source。桌面则 desktop=true；slides[].notes 写演讲备注。不要问风格或品牌。生成不完整不要写空文件冒充成功。\n" +
+		"9) 最后生成：正文齐了才 office.generate（spec.kind 用 pptx）。一次写完 spec：每页 slides[].layout 用上面 17 种版式；数字用 metrics 并在 facts 里登记；有数据变化就配 charts（原生可编辑图表，series 值写成字符串小数）；已上传或生成的图片用 images（sourceId+sha256）；关系图用 diagram（原生可编辑节点+连接符）；指标/议程/流程页可加 icons 点睛（slides[].icons 传内置 MIT 图标名+x/y/size，size 建议 480000–960000 EMU，默认品牌色）；slides[].notes 写演讲备注，出处放 source。生成器自动做排版与质量检查，缺字或空页会被拒绝。只有 office.generate 明确不可用时才退回 pptx.gen。生成不完整不要写空文件冒充成功。\n" +
 		"用户问进度时继续本流水线，不要重开一稿。\n"
 
-	pptGenBlockedMsg = "ok:false\npptx.gen 被流水线拦住：还没做完素材收集与正文撰写。先 web.search（必要时 web.fetch）至少两轮，写好每页标题+要点，再调用 pptx.gen。空页或只铺深色底的文件会被拒绝。\n"
+	pptGenBlockedMsg = "ok:false\nPPT 生成被流水线拦住（office.generate / pptx.gen）：还没做完素材收集与正文撰写。先 web.search（必要时 web.fetch）至少两轮，写好每页标题+要点，再调用 office.generate。空页或只铺深色底的文件会被拒绝。\n"
 
 	pptDirectInstruction = "\n\n[PPT 直接成稿]\n" +
 		"用户已经把页数和事实写在这句话里。不要 web.search，不要 web.fetch，不要九步流水线，不要先勘查目录或问风格。\n" +
-		"模版是可选项：只有资产库里状态为可用、且版式对得上的 PPT 模版，或 pptx.gen catalog 能列出并且版式合适的文件，才用 pages 套用改字。没有合适模版就不要为了找模版再走一轮。\n" +
-		"直接一次 pptx.gen 写完：每页用 cover、section、agenda、content、metrics、comparison、quote、timeline 或 closing。深色底必须浅色字，封面要有主标题和副标题，正文页要有标题和要点。写进工作区后停，报出文件名。\n"
+		"直接一次 office.generate 写完（spec.kind 用 pptx）：每页用 cover、section、agenda、content、two-column、comparison、quote、metrics、timeline、closing、table、conclusion、trend、structure、process、evidence 或 diagram。深色底必须浅色字，封面要有主标题和副标题，正文页要有标题和要点。数字用 metrics，对照放 comparison，引用放 quote，趋势页配 charts，有向关系画 diagram，出处放 source，slides[].notes 写演讲备注。只有 office.generate 明确不可用时才退回 pptx.gen。写完后报出文件名与存放位置。\n"
 )
 
 func pptContentInHand(text string) bool {
@@ -218,8 +218,24 @@ func pptPipelineReady(turn *chatTurnCheckpoint) bool {
 	return web >= 1 && turn.PptNudges >= 3
 }
 
-func pptGenBlocked(turn *chatTurnCheckpoint, name string) (bool, string) {
-	if name != "pptx.gen" || turn == nil || !turn.PptActive {
+// officeGenerateIsPptx reports whether an office.generate call targets a
+// PPTX deck. The strong office.generate chain serves every office kind, so
+// the PPT pipeline only guards its pptx specs; docx/xlsx calls pass through.
+func officeGenerateIsPptx(args json.RawMessage) bool {
+	var a struct {
+		Spec struct {
+			Kind string `json:"kind"`
+		} `json:"spec"`
+	}
+	if len(args) == 0 || json.Unmarshal(args, &a) != nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(a.Spec.Kind), "pptx")
+}
+
+func pptGenBlocked(turn *chatTurnCheckpoint, name string, args json.RawMessage) (bool, string) {
+	isPptGen := name == "pptx.gen" || (name == "office.generate" && officeGenerateIsPptx(args))
+	if !isPptGen || turn == nil || !turn.PptActive {
 		return false, ""
 	}
 	if turn.SkipOfficeResearch || pptContentInHand(turn.Goal) {
@@ -259,11 +275,11 @@ func pptThinkingBanner(stage string) string {
 	case pptStageResearch2:
 		return "【PPT 流程 · 再收集素材】第二轮检索，补缺口，禁止编造。\n"
 	case pptStageCraft:
-		return "【PPT 流程 · 思考创作】定版式与对比度：深色底必须浅色字。\n"
+		return "【PPT 流程 · 思考创作】定版式与对比度：深色底必须浅色字，16 种版式按内容选。\n"
 	case pptStageWrite:
 		return "【PPT 流程 · 写完整页】每一页都要有可见标题和正文，禁止空画布。\n"
 	case pptStageGenerate:
-		return "【PPT 流程 · 最后生成】正文齐了，调用 pptx.gen 写出可打开的 PPTX。\n"
+		return "【PPT 流程 · 最后生成】正文齐了，调用 office.generate（spec.kind=pptx）产出带图表和图片的可编辑 PPTX。\n"
 	default:
 		return "【PPT 流程 · 思考】先弄清目标、受众、语气和页数，不要直接生成空文件。\n"
 	}
@@ -271,7 +287,7 @@ func pptThinkingBanner(stage string) string {
 
 func pptStageNudge(stage string) llmadapter.Message {
 	return llmadapter.Message{Role: llmadapter.RoleSystem, Content: "继续 PPT 九步流水线的下一步（" + stage + "）。" +
-		"还没有合格 pptx.gen 之前不要结束本轮。需要网上素材就调用 web.search / web.fetch。" +
+		"还没有合格 office.generate（spec.kind=pptx）之前不要结束本轮。需要网上素材就调用 web.search / web.fetch。" +
 		"禁止写只有深色底没有文字的幻灯片。"}
 }
 

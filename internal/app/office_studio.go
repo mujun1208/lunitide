@@ -154,6 +154,10 @@ func officeFailureMessage(err error) string {
 		return "办公参数无效"
 	case errors.Is(err, content.ErrFactConflict):
 		return "任务概要中的关键数字互相冲突，未保存"
+	case errors.Is(err, content.ErrLimit):
+		return "办公文件过大或部件过多，超过办公引擎上限（文件最大 128 MB）"
+	case errors.Is(err, content.ErrFormat):
+		return "办公文件无法解析：可能已加密、损坏或不是标准 Office 格式"
 	case errors.Is(err, context.Canceled):
 		return "办公操作已取消"
 	case errors.Is(err, context.DeadlineExceeded):

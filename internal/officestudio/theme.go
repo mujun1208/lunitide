@@ -12,7 +12,14 @@ var (
 )
 
 func init() {
-	for _, id := range []string{"ops-clear", "brand-pitch", "editorial-report"} {
+	for _, id := range []string{
+		"ops-clear", "brand-pitch", "editorial-report",
+		// Kimi-style starter palettes for decks: consulting / tech / finance /
+		// government / startup / academic scenarios, all light-paper themes so
+		// the "dark fill needs light text" validator stays out of the way.
+		"consulting-blue", "tech-petrol", "finance-green",
+		"gov-red", "startup-orange", "academic-slate",
+	} {
 		_ = RegisterBrand(StarterBrand(id))
 	}
 }
@@ -33,6 +40,54 @@ func StarterBrand(id string) BrandProfile {
 			"navy": "3F2E1E", "teal": "5B7C5A", "gold": "B08968",
 			"paper": "F8F4EE", "ink": "2C1810", "muted": "7A6A58",
 			"white": "FFFCF7", "soft": "EFE6D9",
+		}
+	case "consulting-blue":
+		base.BrandID = "consulting-blue"
+		base.Colors = map[string]string{
+			"navy": "16324F", "teal": "2C5F8A", "gold": "B98A2E",
+			"paper": "F7F7F2", "ink": "1D2733", "muted": "6C7A89",
+			"white": "FFFFFF", "soft": "E9EEF4",
+			"emphasis": "8A5A00", "risk": "8A2E2E", "group": "2C5F8A",
+		}
+	case "tech-petrol":
+		base.BrandID = "tech-petrol"
+		base.Colors = map[string]string{
+			"navy": "0E3A47", "teal": "1F7A8C", "gold": "C9A227",
+			"paper": "F5F9FA", "ink": "16232A", "muted": "6B8794",
+			"white": "FFFFFF", "soft": "E4F0F3",
+			"emphasis": "8A5A00", "risk": "8A2E2E", "group": "1F7A8C",
+		}
+	case "finance-green":
+		base.BrandID = "finance-green"
+		base.Colors = map[string]string{
+			"navy": "123B33", "teal": "2E7D5B", "gold": "A8842C",
+			"paper": "F6F8F6", "ink": "1B2622", "muted": "6F8580",
+			"white": "FFFFFF", "soft": "E6F1EC",
+			"emphasis": "8A5A00", "risk": "8A2E2E", "group": "2E7D5B",
+		}
+	case "gov-red":
+		base.BrandID = "gov-red"
+		base.Colors = map[string]string{
+			"navy": "522019", "teal": "8C4A38", "gold": "B9862E",
+			"paper": "FAF7F2", "ink": "2A201D", "muted": "83756E",
+			"white": "FFFFFF", "soft": "F3E9E2",
+			"emphasis": "8A5A00", "risk": "8A2E2E", "group": "8C4A38",
+		}
+	case "startup-orange":
+		base.BrandID = "startup-orange"
+		base.Colors = map[string]string{
+			"navy": "3B2A20", "teal": "C2703D", "gold": "E0A458",
+			"paper": "FBF9F6", "ink": "241D16", "muted": "8A7B6E",
+			"white": "FFFFFF", "soft": "F6ECE2",
+			"emphasis": "8A5A00", "risk": "8A2E2E", "group": "C2703D",
+		}
+	case "academic-slate":
+		base.BrandID = "academic-slate"
+		base.Colors = map[string]string{
+			"navy": "343B4C", "teal": "56698A", "gold": "8A8F9C",
+			"paper": "F7F7F9", "ink": "23262E", "muted": "767D8C",
+			"white": "FFFFFF", "soft": "ECEEF3",
+			"emphasis": "8A5A00", "risk": "8A2E2E", "group": "56698A",
 		}
 	default:
 		base.BrandID = "ops-clear"

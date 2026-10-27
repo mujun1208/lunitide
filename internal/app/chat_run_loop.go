@@ -1669,7 +1669,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						// between started and completed. The runtime serializes
 						// progress callbacks, so the non-concurrent send closure
 						// stays safe.
-						if blocked, msg := pptGenBlocked(&turn, call.Name); blocked {
+						if blocked, msg := pptGenBlocked(&turn, call.Name, call.Arguments); blocked {
 							return blockedPptGenResult(msg), nil
 						}
 						if blocked, msg := docxGenBlocked(&turn, call.Name); blocked {
@@ -1804,7 +1804,7 @@ func (e *Engine) runStream(ctx context.Context, id string, state *streamState, p
 						if fullSkillOutput != "" {
 							completedDigests[digest] = skillInvocationReplay(fullSkillOutput, call.ID, call.Name)
 						}
-						if call.Name == "pptx.gen" && !strings.Contains(summary, "被流水线拦住") {
+						if (call.Name == "pptx.gen" || (call.Name == "office.generate" && officeGenerateIsPptx(call.Arguments))) && !strings.Contains(summary, "被流水线拦住") {
 							turn.PptGenerated = true
 						}
 						if call.Name == "docx.gen" && !strings.Contains(summary, "被流水线拦住") {

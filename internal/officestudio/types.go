@@ -13,9 +13,13 @@ const (
 )
 
 const (
-	MaxInputBytes    = 32 << 20
-	MaxPartBytes     = 16 << 20
-	MaxExpandedBytes = 128 << 20
+	// Import and edit bounds. Real designed PPTX/DOCX templates routinely
+	// carry 30–200 MB of embedded media, so the input bound must stay well
+	// above the historical 32 MB cap while the zip-bomb ratio check in
+	// readPackage keeps adversarial expansion bounded.
+	MaxInputBytes    = 128 << 20
+	MaxPartBytes     = 64 << 20
+	MaxExpandedBytes = 512 << 20
 	MaxParts         = 4096
 	MaxNodes         = 50000
 )
@@ -101,7 +105,8 @@ type DocumentOptions struct {
 }
 
 // Layout supports cover, section, content, two-column, comparison, quote,
-// metrics, timeline, agenda, closing and native table. Bullets are never silently truncated.
+// metrics, timeline, agenda, closing, native table and relationship diagram.
+// Bullets are never silently truncated.
 type Slide struct {
 	Title        string           `json:"title"`
 	Subtitle     string           `json:"subtitle,omitempty"`
@@ -117,7 +122,29 @@ type Slide struct {
 	Comparison   *ComparisonBlock `json:"comparison,omitempty"`
 	Metrics      []MetricBlock    `json:"metrics,omitempty"`
 	Evidence     []EvidenceItem   `json:"evidence,omitempty"`
+	Icons        []SlideIcon      `json:"icons,omitempty"`
+	Diagram      *DiagramSpec     `json:"diagram,omitempty"`
 	LayoutTrace  LayoutTrace      `json:"layoutTrace,omitempty"`
+}
+
+// DiagramSpec is a directed acyclic relationship graph for the diagram layout.
+// The engine layers it (Kahn + longest path) and emits plain editable shapes.
+type DiagramSpec struct {
+	Direction string        `json:"direction,omitempty"` // auto (default), down, right
+	Nodes     []DiagramNode `json:"nodes"`
+	Edges     []DiagramEdge `json:"edges"`
+}
+
+type DiagramNode struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Kind  string `json:"kind,omitempty"` // start, process, decision, end
+}
+
+type DiagramEdge struct {
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Label string `json:"label,omitempty"`
 }
 
 type LayoutTrace struct {
@@ -185,6 +212,17 @@ type SlideImage struct {
 	Fit      string `json:"fit"`
 	Alt      string `json:"alt"`
 	Data     []byte `json:"-"`
+}
+
+// SlideIcon places one built-in vector icon (see icondata.go). Size is the
+// icon square edge in EMU; Color is an optional 6-digit hex RGB override that
+// defaults to the brand teal at generation time.
+type SlideIcon struct {
+	Name  string `json:"name"`
+	X     int64  `json:"x"`
+	Y     int64  `json:"y"`
+	Size  int64  `json:"size"`
+	Color string `json:"color,omitempty"`
 }
 
 type ImageInfo struct {

@@ -59,7 +59,7 @@ func TestRemapStudioStatusKeepsUsabilityMissing(t *testing.T) {
 func TestApplyUsabilityChecksKeepsConfiguredMissingWithoutFile(t *testing.T) {
 	t.Setenv("LUNITIDE_PDFA_VALIDATOR", filepath.Join(t.TempDir(), "pdfa-validator"))
 	t.Setenv("LUNITIDE_OFFICE_VISION", filepath.Join(t.TempDir(), "vision"))
-	checks := applyUsabilityChecks(nil, nil)
+	checks := applyUsabilityChecks(context.Background(), nil, nil, 0, true)
 	if c := findOfficeCheck(checks, "pdfa"); c.Status != "missing" {
 		t.Fatalf("pdfa=%#v", c)
 	}
@@ -89,10 +89,10 @@ func TestApplyUsabilityChecksRunsConfiguredToolsOnPDF(t *testing.T) {
 		sawVision = append([][]byte(nil), pages...)
 		return nil, "已检查 2 页渲染图", nil
 	})
-	checks := applyUsabilityChecks([]domain.Check{
+	checks := applyUsabilityChecks(context.Background(), []domain.Check{
 		{ID: "pdfa", Status: "unsupported", Detail: "placeholder"},
 		{ID: "visual-model", Status: "unsupported", Detail: "placeholder"},
-	}, pdf)
+	}, pdf, 0, true)
 	if c := findOfficeCheck(checks, "pdfa"); c.Status != "passed" {
 		t.Fatalf("pdfa=%#v", c)
 	}
@@ -118,7 +118,7 @@ func TestApplyUsabilityChecksDoesNotTreatPDFBytesAsOnePage(t *testing.T) {
 		saw = pages
 		return nil, "ok", nil
 	})
-	checks := applyUsabilityChecks(nil, pdf)
+	checks := applyUsabilityChecks(context.Background(), nil, pdf, 0, true)
 	if len(saw) == 1 && bytes.Equal(saw[0], pdf) {
 		t.Fatal("raw PDF must not be a visual page")
 	}
@@ -137,7 +137,7 @@ func TestApplyUsabilityChecksFailedStayFailed(t *testing.T) {
 	content.SetVisualReviewForTest(t, func([][]byte) ([]content.Issue, string, error) {
 		return []content.Issue{{Code: "overlap", Message: "重叠"}}, "重叠", nil
 	})
-	checks := applyUsabilityChecks(nil, []byte("%PDF-1.4 fail"))
+	checks := applyUsabilityChecks(context.Background(), nil, []byte("%PDF-1.4 fail"), 0, true)
 	if findOfficeCheck(checks, "pdfa").Status != "failed" {
 		t.Fatalf("pdfa=%#v", findOfficeCheck(checks, "pdfa"))
 	}

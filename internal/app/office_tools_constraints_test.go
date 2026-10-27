@@ -112,6 +112,17 @@ func TestOfficeToolLayoutsMatchGeneratorAndRangeDoesNotOfferFormatting(t *testin
 	if _, ok := properties(slide)["evidence"]; !ok {
 		t.Fatal("office.generate slides missing v2 evidence")
 	}
+	icons := properties(slide)["icons"].(map[string]any)
+	iconProps := icons["items"].(map[string]any)["properties"].(map[string]any)
+	iconEnum, _ := iconProps["name"].(map[string]any)["enum"].([]any)
+	if len(iconEnum) != len(content.IconNames()) {
+		t.Fatalf("icon enum drifted from the renderer catalog: schema=%d catalog=%d", len(iconEnum), len(content.IconNames()))
+	}
+	for i, name := range content.IconNames() {
+		if iconEnum[i].(string) != name {
+			t.Fatalf("icon enum order drifted at %d: %q vs %q", i, iconEnum[i], name)
+		}
+	}
 	layouts := properties(slide)["layout"].(map[string]any)["enum"].([]any)
 	deck := content.Spec{SchemaVersion: 1, Kind: content.PPTX, Title: "全部工具布局"}
 	for _, value := range layouts {
@@ -123,6 +134,13 @@ func TestOfficeToolLayoutsMatchGeneratorAndRangeDoesNotOfferFormatting(t *testin
 		if layout == "table" {
 			item.Bullets = nil
 			item.Rows = [][]string{{"项目", "数量"}, {"验证", "1"}}
+		}
+		if layout == "diagram" {
+			item.Bullets = nil
+			item.Diagram = &content.DiagramSpec{
+				Nodes: []content.DiagramNode{{ID: "a", Label: "发起"}, {ID: "b", Label: "完成", Kind: "end"}},
+				Edges: []content.DiagramEdge{{From: "a", To: "b", Label: "通过"}},
+			}
 		}
 		deck.Slides = append(deck.Slides, item)
 	}

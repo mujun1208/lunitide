@@ -20,12 +20,15 @@ const relsDocx = xmlDecl + `
 
 // --- PPTX parts ---------------------------------------------------------
 
-func contentTypesPptx(slides int, noteSlides ...int) string {
+func contentTypesPptx(slides, layouts int, noteSlides ...int) string {
 	noted := map[int]bool{}
 	for _, n := range noteSlides {
 		if n >= 1 && n <= slides {
 			noted[n] = true
 		}
+	}
+	if layouts < 1 {
+		layouts = 1
 	}
 	var b strings.Builder
 	b.WriteString(xmlDecl + `
@@ -36,7 +39,10 @@ func contentTypesPptx(slides int, noteSlides ...int) string {
 			fmt.Fprintf(&b, `<Override PartName="/ppt/notesSlides/notesSlide%d.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/>`, i)
 		}
 	}
-	fmt.Fprintf(&b, `<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/></Types>`)
+	for i := 1; i <= layouts; i++ {
+		fmt.Fprintf(&b, `<Override PartName="/ppt/slideLayouts/slideLayout%d.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>`, i)
+	}
+	b.WriteString(`</Types>`)
 	return b.String()
 }
 
@@ -101,6 +107,119 @@ const slideLayoutXML = xmlDecl + `
 
 const slideLayoutRels = xmlDecl + `
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>`
+
+// studioLayoutDefs fixes part order and the PowerPoint layout type for every
+// semantic studio layout. The design layer (master, layouts, theme) derives
+// from the same SlideTheme values as slide content, so changing brandId
+// regenerates the whole design layer from one source of truth.
+var studioLayoutDefs = []struct{ Layout, Type, Name string }{
+	{"cover", "title", "封面"},
+	{"section", "secHead", "章节过渡"},
+	{"content", "obj", "内容"},
+	{"two-column", "twoColTx", "两栏"},
+	{"comparison", "comparison", "对比"},
+	{"quote", "tx", "引用"},
+	{"metrics", "obj", "指标"},
+	{"timeline", "obj", "时间线"},
+	{"agenda", "twoColTx", "议程"},
+	{"closing", "title", "结束页"},
+	{"table", "obj", "表格"},
+	{"conclusion", "title", "结论"},
+	{"trend", "obj", "趋势"},
+	{"structure", "obj", "结构"},
+	{"process", "obj", "流程"},
+	{"evidence", "obj", "论证"},
+	{"diagram", "obj", "关系图"},
+}
+
+// StudioLayoutIndex maps a semantic layout to its 1-based layout part index.
+// Unknown layouts fall back to the generic content layout.
+func StudioLayoutIndex(layout string) int {
+	for i, def := range studioLayoutDefs {
+		if def.Layout == layout {
+			return i + 1
+		}
+	}
+	for i, def := range studioLayoutDefs {
+		if def.Layout == "content" {
+			return i + 1
+		}
+	}
+	return 1
+}
+
+// slideMasterXMLFor writes a branded master: paper background, brand text
+// styles, and a layout id list covering every studio layout part.
+func slideMasterXMLFor(theme SlideTheme, layouts int) string {
+	if layouts < 1 {
+		layouts = 1
+	}
+	paper, ink, muted := theme.Paper, theme.Ink, theme.Muted
+	latin, east := theme.Latin, theme.East
+	if paper == "" {
+		paper = "F4F6F8"
+	}
+	if ink == "" {
+		ink = "1F2937"
+	}
+	if muted == "" {
+		muted = "6B7280"
+	}
+	if latin == "" {
+		latin = "Calibri"
+	}
+	if east == "" {
+		east = "Microsoft YaHei"
+	}
+	titleSz, bodySz := theme.TitleSz, theme.BodySz
+	if titleSz <= 0 {
+		titleSz = 4000
+	}
+	if bodySz <= 0 {
+		bodySz = 1800
+	}
+	var b strings.Builder
+	b.WriteString(xmlDecl + `
+<p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="` + xmlEscape(paper) + `"/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld><p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/><p:sldLayoutIdLst>`)
+	for i := 1; i <= layouts; i++ {
+		fmt.Fprintf(&b, `<p:sldLayoutId id="%d" r:id="rId%d"/>`, 2147483648+i, i)
+	}
+	fonts := `<a:latin typeface="` + xmlEscape(latin) + `"/><a:ea typeface="` + xmlEscape(east) + `"/><a:cs typeface="` + xmlEscape(east) + `"/>`
+	fmt.Fprintf(&b, `</p:sldLayoutIdLst><p:txStyles><p:titleStyle><a:lvl1pPr><a:defRPr sz="%d" b="1"><a:solidFill><a:srgbClr val="%s"/></a:solidFill>%s</a:defRPr></a:lvl1pPr></p:titleStyle><p:bodyStyle><a:lvl1pPr marL="228600" indent="-228600"><a:buChar char="&#8226;"/><a:defRPr sz="%d"><a:solidFill><a:srgbClr val="%s"/></a:solidFill>%s</a:defRPr></a:lvl1pPr></p:bodyStyle><p:otherStyle><a:lvl1pPr><a:defRPr sz="1800"><a:solidFill><a:srgbClr val="%s"/></a:solidFill>%s</a:defRPr></a:lvl1pPr></p:otherStyle></p:txStyles></p:sldMaster>`,
+		titleSz, xmlEscape(ink), fonts, bodySz, xmlEscape(ink), fonts, xmlEscape(muted), fonts)
+	return b.String()
+}
+
+// slideMasterRelsFor lists every layout part plus the theme.
+func slideMasterRelsFor(layouts int) string {
+	if layouts < 1 {
+		layouts = 1
+	}
+	var b strings.Builder
+	b.WriteString(xmlDecl + `
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`)
+	for i := 1; i <= layouts; i++ {
+		fmt.Fprintf(&b, `<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout%d.xml"/>`, i, i)
+	}
+	fmt.Fprintf(&b, `<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>`, layouts+1)
+	return b.String()
+}
+
+// slideLayoutXMLFor writes one branded layout with real title/body
+// placeholders so PowerPoint's layout editor shows the studio design.
+func slideLayoutXMLFor(def struct{ Layout, Type, Name string }, theme SlideTheme) string {
+	coverish := def.Type == "title"
+	titleX, titleY, titleW, titleH := int64(520000), int64(260000), int64(11000000), int64(720000)
+	bodyY, bodyH := int64(1900000), int64(4380000)
+	if coverish {
+		titleY, titleH = 2600000, 1400000
+		bodyY, bodyH = 4300000, 800000
+	}
+	titlePh := fmt.Sprintf(`<p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="%d" y="%d"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:endParaRPr lang="zh-CN"/></a:p></p:txBody></p:sp>`, titleX, titleY, titleW, titleH)
+	bodyPh := fmt.Sprintf(`<p:sp><p:nvSpPr><p:cNvPr id="3" name="Content"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="%d" y="%d"/><a:ext cx="11150000" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="zh-CN"/></a:p></p:txBody></p:sp>`, titleX, bodyY, bodyH)
+	return xmlDecl + `
+<p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="` + def.Type + `" preserve="1"><p:cSld name="` + xmlEscape(def.Name) + `"><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>` + titlePh + bodyPh + `</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>`
+}
 
 const themeXML = xmlDecl + `
 <a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Lunitide"><a:themeElements><a:clrScheme name="Lunitide"><a:dk1><a:srgbClr val="111827"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="1F2937"/></a:dk2><a:lt2><a:srgbClr val="F3F4F6"/></a:lt2><a:accent1><a:srgbClr val="2563EB"/></a:accent1><a:accent2><a:srgbClr val="0891B2"/></a:accent2><a:accent3><a:srgbClr val="059669"/></a:accent3><a:accent4><a:srgbClr val="D97706"/></a:accent4><a:accent5><a:srgbClr val="7C3AED"/></a:accent5><a:accent6><a:srgbClr val="DB2777"/></a:accent6><a:hlink><a:srgbClr val="2563EB"/></a:hlink><a:folHlink><a:srgbClr val="7C3AED"/></a:folHlink></a:clrScheme><a:fontScheme name="Lunitide"><a:majorFont><a:latin typeface="Calibri Light"/><a:ea typeface="Microsoft YaHei"/><a:cs typeface="Microsoft YaHei"/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/><a:ea typeface="Microsoft YaHei"/><a:cs typeface="Microsoft YaHei"/></a:minorFont></a:fontScheme><a:fmtScheme name="Lunitide"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`

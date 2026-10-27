@@ -10,7 +10,12 @@ export interface OfficeImportRevision {
   kind: OfficeKind;
 }
 
-const LIMIT = 500 * 1024 * 1024;
+const LIMIT = 500 * 1024 * 1024
+
+// 导入引擎上限（internal/officestudio.MaxInputBytes = 128 MiB）。附件通道允许
+// 500 MiB，但底稿导入会被办公引擎拒绝；提前拦截给出明确原因，而不是在
+// “开始工作”后才收到笼统失败。
+const OFFICE_ENGINE_LIMIT = 128 * 1024 * 1024;
 const OFFICE_BATCH_MAX = 40;
 interface CommittedImport {
   attachmentId: string;
@@ -39,6 +44,10 @@ export function validateOfficeFiles(files: File[], revision?: OfficeImportRevisi
     const extension = file.name.split('.').pop()?.toLowerCase() || '';
     if (!MIME[extension]) throw new Error(`不支持 ${file.name}。请选择 PPTX、DOCX、XLSX 或 PDF 文件。`);
     if (file.size > LIMIT || !file.size) throw new Error(`${file.name} 必须是非空文件，且不能超过 500 MiB。`);
+    if (file.size > OFFICE_ENGINE_LIMIT) {
+      const mb = Math.round(file.size / 1024 / 1024);
+      throw new Error(`${file.name} 有 ${mb} MB，超过办公引擎导入上限 128 MB，无法作为底稿导入。请先压缩文件（尤其是嵌入的图片和音视频）再试。`);
+    }
   }
 }
 

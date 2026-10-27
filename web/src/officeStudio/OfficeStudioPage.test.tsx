@@ -1090,7 +1090,8 @@ describe('Office Studio production state', () => {
     fireEvent.click(screen.getByRole('button', { name: '生成演示' }));
     const last = conversation.mock.calls.at(-1)?.[1];
     expect(last?.promptEpoch).toBe(1);
-    expect(last?.initialPrompt).toContain('pptx.gen');
+    expect(last?.initialPrompt).toContain('office.generate');
+    expect(last?.initialPrompt).toContain('spec.kind 用 pptx');
     expect(last?.initialPrompt).toContain('根据已提供的数据整理季度汇报');
     expect(last?.initialPrompt).toContain('不要使用 PowerPoint COM');
   });

@@ -207,3 +207,37 @@ func TestLineChartKeepsSeriesLegendAndLegacyChartsEditable(t *testing.T) {
 		}
 	}
 }
+
+// Generated decks must not fall back to viewer-default accent colours: every
+// series carries an explicit deterministic fill so the deck looks identical
+// across PowerPoint, WPS and web previews, and so managed-chart byte
+// comparison stays stable.
+func TestChartSeriesUseDeterministicPalette(t *testing.T) {
+	multi := testChartSpec()
+	multi.Series = []ChartSeries{
+		{Name: "本年", Values: []string{"1", "2"}},
+		{Name: "去年", Values: []string{"2", "1"}},
+		{Name: "目标", Values: []string{"3", "3"}},
+	}
+	for _, kind := range []string{"column", "bar", "line"} {
+		c := multi
+		c.Type = kind
+		data := testChartDeck(t, c)
+		part := zipParts(t, data)[chartNodes(t, data)[0].Chart.ChartPart]
+		for i := 0; i < 3; i++ {
+			if !bytes.Contains(part, []byte(`<a:srgbClr val="`+chartSeriesColor(i)+`"/>`)) {
+				t.Fatalf("%s chart series %d missing palette colour", kind, i)
+			}
+		}
+	}
+	pie := testChartSpec()
+	pie.Type = "pie"
+	data := testChartDeck(t, pie)
+	part := zipParts(t, data)[chartNodes(t, data)[0].Chart.ChartPart]
+	if !bytes.Contains(part, []byte(`<c:dPt><c:idx val="0"/>`)) || !bytes.Contains(part, []byte(`<a:srgbClr val="FFFFFF"/>`)) {
+		t.Fatal("pie slices lack per-point colours with a white separator outline")
+	}
+	if !bytes.Contains(part, []byte(chartSeriesColor(0))) {
+		t.Fatal("pie slices missing palette colour")
+	}
+}

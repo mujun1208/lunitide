@@ -89,7 +89,7 @@ export function boundBrainFromKeys(keys: readonly string[]): ExpertBrain {
 }
 
 export const CONVERSATION_EXPERT_REQUIRED_TOOLS: Record<ConversationExpertID, readonly string[]> = {
-  'ppt-expert': ['web.search', 'web.fetch', 'pptx.gen', 'skill.invoke', 'image.generate', 'todo.write'],
+  'ppt-expert': ['web.search', 'web.fetch', 'office.generate', 'pptx.gen', 'skill.invoke', 'image.generate', 'todo.write'],
   'report-writer': ['web.search', 'web.fetch', 'docx.gen', 'skill.invoke', 'todo.write'],
   'novel-writer': ['docx.gen', 'skill.invoke', 'web.search', 'todo.write'],
   'excel-maker': ['excel.gen', 'excel.parse', 'skill.invoke', 'todo.write'],

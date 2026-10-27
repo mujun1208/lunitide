@@ -326,6 +326,35 @@ type SlideComparison struct {
 	Right []string
 }
 
+// SlideDiagram carries a positioned relationship diagram: node boxes and
+// plain connector shapes. Geometry comes from the officestudio layout
+// engine (longest-path layering), so the renderer stays deterministic.
+type SlideDiagram struct {
+	Direction string              `json:"direction"` // down or right
+	Boxes     []SlideDiagramBox   `json:"boxes"`
+	Links     []SlideDiagramLink  `json:"links"`
+}
+
+type SlideDiagramBox struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Kind  string `json:"kind"` // start, process, decision, end
+	X     int64  `json:"x"`
+	Y     int64  `json:"y"`
+	W     int64  `json:"w"`
+	H     int64  `json:"h"`
+}
+
+// SlideDiagramLink stores connector anchor sides matching the OOXML
+// rectangle connection-site order: 0 top, 1 right, 2 bottom, 3 left.
+type SlideDiagramLink struct {
+	From     string `json:"from"`
+	To       string `json:"to"`
+	Label    string `json:"label,omitempty"`
+	FromSide int    `json:"fromSide"`
+	ToSide   int    `json:"toSide"`
+}
+
 type SlideSpec struct {
 	Title      string           `json:"title"`
 	Subtitle   string           `json:"subtitle,omitempty"`
@@ -335,6 +364,7 @@ type SlideSpec struct {
 	Source     string           `json:"source,omitempty"`
 	Metrics    []SlideMetric    `json:"metrics,omitempty"`
 	Comparison *SlideComparison `json:"comparison,omitempty"`
+	Diagram    *SlideDiagram    `json:"diagram,omitempty"`
 }
 
 // GenPptx writes a minimal-but-valid PowerPoint deck (OOXML zip:
@@ -352,7 +382,7 @@ func GenPptx(title string, slides []SlideSpec) ([]byte, error) {
 		}
 	}
 	parts := []zipPart{
-		{"[Content_Types].xml", contentTypesPptx(len(slides), noteSlideIndexes(slides)...)},
+		{"[Content_Types].xml", contentTypesPptx(len(slides), 1, noteSlideIndexes(slides)...)},
 		{"_rels/.rels", relsPptx},
 		{"ppt/presentation.xml", presentationXML(len(slides))},
 		{"ppt/_rels/presentation.xml.rels", presentationRels(len(slides))},

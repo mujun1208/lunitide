@@ -170,7 +170,7 @@ func DarkOnlySlideFixture() []byte {
 		pptxRect(2, "Fill", clrNavy, 0, 0, pptxW, pptxH) +
 		pptxTreeClose()
 	data, err := zipBytes([]zipPart{
-		{"[Content_Types].xml", contentTypesPptx(1)},
+		{"[Content_Types].xml", contentTypesPptx(1, 1)},
 		{"_rels/.rels", relsPptx},
 		{"ppt/presentation.xml", presentationXML(1)},
 		{"ppt/_rels/presentation.xml.rels", presentationRels(1)},

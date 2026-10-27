@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -22,10 +23,20 @@ func TestLooksLikePptTask(t *testing.T) {
 
 func TestPptGenBlockedUntilResearch(t *testing.T) {
 	turn := &chatTurnCheckpoint{PptActive: true}
-	if blocked, msg := pptGenBlocked(turn, "pptx.gen"); !blocked || !strings.Contains(msg, "拦住") {
+	pptxGenArgs := json.RawMessage(`{"spec":{"kind":"pptx"}}`)
+	if blocked, msg := pptGenBlocked(turn, "pptx.gen", nil); !blocked || !strings.Contains(msg, "拦住") {
 		t.Fatalf("empty pipeline must block pptx.gen: %v %q", blocked, msg)
 	}
-	if blocked, _ := pptGenBlocked(turn, "web.search"); blocked {
+	if blocked, _ := pptGenBlocked(turn, "office.generate", pptxGenArgs); !blocked {
+		t.Fatal("empty pipeline must block office.generate pptx")
+	}
+	if blocked, _ := pptGenBlocked(turn, "office.generate", json.RawMessage(`{"spec":{"kind":"docx"}}`)); blocked {
+		t.Fatal("office.generate docx is not a PPT generation")
+	}
+	if blocked, _ := pptGenBlocked(turn, "office.generate", nil); blocked {
+		t.Fatal("office.generate without a parsable spec must pass through")
+	}
+	if blocked, _ := pptGenBlocked(turn, "web.search", nil); blocked {
 		t.Fatal("research tools must not be blocked")
 	}
 	notePptTools(turn, []string{"web.search"})
@@ -36,8 +47,29 @@ func TestPptGenBlockedUntilResearch(t *testing.T) {
 	if !pptPipelineReady(turn) {
 		t.Fatal("two web passes must unlock pptx.gen")
 	}
-	if blocked, _ := pptGenBlocked(turn, "pptx.gen"); blocked {
+	if blocked, _ := pptGenBlocked(turn, "pptx.gen", nil); blocked {
 		t.Fatal("ready pipeline still blocked")
+	}
+	if blocked, _ := pptGenBlocked(turn, "office.generate", pptxGenArgs); blocked {
+		t.Fatal("ready pipeline must unlock office.generate pptx")
+	}
+}
+
+func TestOfficeGenerateIsPptx(t *testing.T) {
+	cases := map[string]bool{
+		`{"spec":{"kind":"pptx"}}`:             true,
+		`{"spec":{"kind":"PPTX"}}`:             true,
+		`{"spec":{"kind":"pptx","title":"x"}}`: true,
+		`{"spec":{"kind":"docx"}}`:             false,
+		`{"spec":{}}`:                          false,
+		`{}`:                                   false,
+		``:                                     false,
+		`not json`:                             false,
+	}
+	for args, want := range cases {
+		if got := officeGenerateIsPptx(json.RawMessage(args)); got != want {
+			t.Fatalf("officeGenerateIsPptx(%q) = %v, want %v", args, got, want)
+		}
 	}
 }
 
@@ -88,10 +120,10 @@ func TestPptFactsSkipResearchAndGenerateOnce(t *testing.T) {
 		t.Fatalf("stage=%s skip=%v", turn.PptStage, turn.SkipOfficeResearch)
 	}
 	last := req.Messages[len(req.Messages)-1].Content
-	if strings.Contains(last, "[PPT 九步流水线") || !strings.Contains(last, "不要 web.search") || !strings.Contains(last, "没有合适模版") {
+	if strings.Contains(last, "[PPT 九步流水线") || !strings.Contains(last, "不要 web.search") || !strings.Contains(last, "office.generate") {
 		t.Fatalf("direct instruction missing: %s", last)
 	}
-	if blocked, _ := pptGenBlocked(turn, "pptx.gen"); blocked {
+	if blocked, _ := pptGenBlocked(turn, "pptx.gen", nil); blocked {
 		t.Fatal("facts already in the request must not block pptx.gen")
 	}
 }

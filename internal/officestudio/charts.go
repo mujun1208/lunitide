@@ -29,6 +29,38 @@ const chartCanvasXML = `<c:spPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidF
 const lineGroupingXML = `<c:lineChart><c:grouping val="standard"/>`
 const lineSeriesColorsXML = lineGroupingXML + `<c:varyColors val="0"/>`
 
+// chartSeriesPalette is a fixed, theme-independent professional series ramp.
+// A deterministic palette keeps chartXML byte-stable for the
+// managed-chart comparison in chart_nodes, and works on all nine light-paper
+// starter brands. Series colors never depend on external state.
+var chartSeriesPalette = []string{"1F5C8B", "0D9488", "B7791F", "56698A", "8C4A38", "2E7D5B"}
+
+func chartSeriesColor(i int) string {
+	if i < 0 {
+		i = 0
+	}
+	return chartSeriesPalette[i%len(chartSeriesPalette)]
+}
+
+// chartSeriesStyleXML paints one series deterministically. Line charts are
+// colored by their outline; bar/column by a solid fill; pie charts use
+// per-slice data points with a white separator outline.
+func chartSeriesStyleXML(chartType string, seriesIndex int, sliceCount int) string {
+	color := chartSeriesColor(seriesIndex)
+	switch chartType {
+	case "line":
+		return `<c:spPr><a:ln w="28575" cap="rnd"><a:solidFill><a:srgbClr val="` + color + `"/></a:solidFill><a:round/></a:ln><a:effectLst/></c:spPr>`
+	case "pie":
+		var b strings.Builder
+		for i := 0; i < sliceCount; i++ {
+			fmt.Fprintf(&b, `<c:dPt><c:idx val="%d"/><c:bubble3D val="0"/><c:spPr><a:solidFill><a:srgbClr val="%s"/></a:solidFill><a:ln w="9525"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln></c:spPr></c:dPt>`, i, chartSeriesColor(seriesIndex+i))
+		}
+		return b.String()
+	default:
+		return `<c:spPr><a:solidFill><a:srgbClr val="` + color + `"/></a:solidFill><a:ln><a:noFill/></a:ln></c:spPr>`
+	}
+}
+
 func managedChartBytesEqual(body, current []byte) bool {
 	// Accept only exact versions emitted by our writer. Earlier versions did
 	// not explicitly fix line-series colours or provide a light canvas.
@@ -155,6 +187,7 @@ func chartXML(c SlideChart) []byte {
 	for i, s := range c.Series {
 		col, _ := excelize.ColumnNumberToName(i + 2)
 		fmt.Fprintf(&b, `<c:ser><c:idx val="%d"/><c:order val="%d"/><c:tx><c:strRef><c:f>Data!$%s$1</c:f>%s</c:strRef></c:tx>`, i, i, col, chartCache("strCache", []string{s.Name}, false))
+		b.WriteString(chartSeriesStyleXML(c.Type, i, len(c.Categories)))
 		fmt.Fprintf(&b, `<c:cat><c:strRef><c:f>Data!$A$2:$A$%d</c:f>%s</c:strRef></c:cat>`, len(c.Categories)+1, chartCache("strCache", c.Categories, false))
 		fmt.Fprintf(&b, `<c:val><c:numRef><c:f>Data!$%s$2:$%s$%d</c:f>%s</c:numRef></c:val>`, col, col, len(c.Categories)+1, chartCache("numCache", s.Values, true))
 		if c.Type == "line" {

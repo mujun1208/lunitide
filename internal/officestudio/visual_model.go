@@ -2,12 +2,20 @@ package officestudio
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/lunitide/lunitide/internal/doctext"
 )
+
+// maxVisualRenderPages bounds per-request page rasterization for visual QA.
+// It matches MaxPptxSlides; larger imported PDFs are QA-sampled on the first
+// pages instead of rendering unbounded page counts.
+const maxVisualRenderPages = 30
 
 type VisualModelRequest struct {
 	Configured bool
@@ -34,14 +42,37 @@ func SetVisualPageImagesForTest(t interface{ Cleanup(func()) }, run func([]byte)
 	t.Cleanup(func() { visualPageImages = prev })
 }
 
-func ExtractVisualPages(pdf []byte) ([][]byte, error) {
+// ExtractVisualPages rasterizes a PDF into per-page PNG bytes. The production
+// path parses the page tree, then renders bounded pages through the local
+// doctext pipeline (Windows platform renderer); failures degrade the caller
+// to an unsupported visual check instead of blocking delivery.
+func ExtractVisualPages(ctx context.Context, pdf []byte) ([][]byte, error) {
 	if visualPageImages != nil {
 		return visualPageImages(pdf)
 	}
 	if len(pdf) == 0 {
 		return nil, fmt.Errorf("no pdf")
 	}
-	return nil, fmt.Errorf("per-page raster unavailable")
+	tree, err := doctext.ExtractPDFPages(pdf)
+	if err != nil || len(tree) == 0 {
+		return nil, fmt.Errorf("pdf page tree unavailable")
+	}
+	if len(tree) > maxVisualRenderPages {
+		tree = tree[:maxVisualRenderPages]
+	}
+	indexes := make([]int, len(tree))
+	for i, page := range tree {
+		indexes[i] = page.Page
+	}
+	rendered, err := doctext.RenderPDFPages(ctx, pdf, indexes)
+	if err != nil {
+		return nil, err
+	}
+	pages := make([][]byte, 0, len(rendered))
+	for _, page := range rendered {
+		pages = append(pages, page.PNG)
+	}
+	return pages, nil
 }
 
 func RunConfiguredVisualReview(pages [][]byte) ([]Issue, string, error) {

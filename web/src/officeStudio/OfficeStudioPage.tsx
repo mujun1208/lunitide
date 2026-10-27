@@ -651,9 +651,9 @@ export function OfficeStudioPage({
     const prompt = [
       `请做一份演示文稿，标题用「${title}」。`,
       lines.length ? `大纲：\n${lines.join('\n')}` : '按这个目标自己安排页数和每页要点。',
-      '先 pptx.gen catalog=true 看本机模板库。只有版式真的合适时，才再读该 template，用 pages 决定用哪些页、同一页克隆几次，并按形状 id 改字。纯图页不要改字。',
-      '没有合适模板就不要套。缺事实先 web.search。然后每页用一种版式：cover、section、agenda、content、metrics、comparison、quote、timeline、closing。数字放 metrics，对照放 comparison，引用放 quote，出处放 source。不要整本都是要点列表。',
-      'path 用 汇报.pptx。不要自己画坐标，不要使用 PowerPoint COM，不要再问风格或品牌。',
+      '用 office.generate 一次成稿，spec.kind 用 pptx，name 用 汇报.pptx。缺事实先 web.search。',
+      '每页用一种版式：cover、section、agenda、content、two-column、comparison、quote、metrics、timeline、closing、table、conclusion、trend、structure、process、evidence。数字放 metrics（绑定 factId），对照放 comparison，引用放 quote，流程放 process/timeline，趋势放 trend（必须配 charts 折线/柱状图），层级放 structure，结论页 conclusion，证据页 evidence，数据表用 table。',
+      '有数量变化就配 charts（原生可编辑图表，series 的值写成字符串小数）；已有图片素材可用 images（sourceId+sha256 引用会话附件）。slides[].notes 写演讲备注，出处放 source。不要整本都是要点列表，不要自己画坐标，不要使用 PowerPoint COM，不要再问风格或品牌。',
     ].join('\n');
     startup.current = { taskId: detail.task.id, prompt };
     setDeckRun((value) => value + 1);

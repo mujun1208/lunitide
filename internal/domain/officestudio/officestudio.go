@@ -138,7 +138,7 @@ func honestCoverageGap(c Check) bool {
 		return false
 	}
 	switch c.ID {
-	case "target-compatibility", "target-powerpoint", "target-wps", "target-libreoffice", "visual-model", "pdfa":
+	case "target-compatibility", "target-powerpoint", "target-wps", "target-libreoffice", "visual-model", "pdfa", "render-pixel-qa", "render-border-ink":
 		return true
 	default:
 		return false
