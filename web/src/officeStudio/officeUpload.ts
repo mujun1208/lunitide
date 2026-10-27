@@ -15,7 +15,7 @@ const LIMIT = 500 * 1024 * 1024
 // 导入引擎上限（internal/officestudio.MaxInputBytes = 128 MiB）。附件通道允许
 // 500 MiB，但底稿导入会被办公引擎拒绝；提前拦截给出明确原因，而不是在
 // “开始工作”后才收到笼统失败。
-const OFFICE_ENGINE_LIMIT = 128 * 1024 * 1024;
+export const OFFICE_ENGINE_LIMIT = 128 * 1024 * 1024;
 const OFFICE_BATCH_MAX = 40;
 interface CommittedImport {
   attachmentId: string;

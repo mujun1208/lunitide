@@ -15,6 +15,19 @@ func encodeTemplateBytes(content []byte) string {
 	return base64.StdEncoding.EncodeToString(content)
 }
 
+// templateOpenInlineMax bounds the office-purpose inline payload. A bridge
+// response frame is capped by ipc.MaxFrameSize (16 MiB) and base64 inflates
+// content by 4/3, so files larger than 11 MiB must stream through
+// template.readChunk instead of one oversized frame.
+const templateOpenInlineMax = 11 << 20
+
+// templateReadChunkLimitMax caps a single template.readChunk slice request.
+// 4 MiB raw becomes ~5.59 MiB of base64, safely inside one frame.
+const templateReadChunkLimitMax = 4 << 20
+
+// templateReadChunkLimitDefault applies when the caller omits the limit.
+const templateReadChunkLimitDefault = 1 << 20
+
 func handleTemplateOpen(e *Engine, ctx context.Context, r bridge.Request) bridge.Response {
 	var p struct {
 		ID      string `json:"id"`
@@ -57,7 +70,12 @@ func handleTemplateOpen(e *Engine, ctx context.Context, r bridge.Request) bridge
 		default:
 			return r.Fail("TEMPLATE_OPEN_FAILED", "办公工作台只引用 PPT、Word、Excel 模版", false)
 		}
-		return r.Ok(map[string]any{"opened": false, "fileName": name, "contentBase64": encodeTemplateBytes(content)})
+		if len(content) > templateOpenInlineMax {
+			// Oversized templates stay usable: the frontend streams the bytes
+			// through template.readChunk instead of one oversized frame.
+			return r.Ok(map[string]any{"opened": false, "fileName": name, "size": len(content), "chunked": true})
+		}
+		return r.Ok(map[string]any{"opened": false, "fileName": name, "contentBase64": encodeTemplateBytes(content), "size": len(content)})
 	}
 	// The application opens an independent copy, never the managed asset original.
 	dir, err := os.MkdirTemp("", "lunitide-asset-view-")

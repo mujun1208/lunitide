@@ -18,7 +18,13 @@
     "properties": {
       "opened": { "type": "boolean" },
       "fileName": { "type": "string" },
-      "contentBase64": { "type": "string" }
+      "contentBase64": { "type": "string" },
+      "size": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 536870912
+      },
+      "chunked": { "type": "boolean" }
     },
     "required": ["opened"]
   },

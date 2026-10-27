@@ -451,6 +451,7 @@ var RuntimeHandlers = map[bridge.Method]runtimeHandler{
 	bridge.MethodTemplateFileStage:                  handleTemplateFileStage,
 	bridge.MethodTemplateList:                       handleTemplateList,
 	bridge.MethodTemplateOfficeImport:               handleTemplateOfficeImport,
+	bridge.MethodTemplateReadChunk:                  handleTemplateReadChunk,
 	bridge.MethodTemplateRestore:                    handleTemplateRestore,
 	bridge.MethodTemplateVoid:                       handleTemplateVoid,
 	bridge.MethodWorkflowCaptureInput:               handleWorkflowCaptureInput,

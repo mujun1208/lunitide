@@ -43,14 +43,15 @@ import { useOfficePanelResize } from './useOfficePanelResize';
 import { OfficeReferences } from './OfficeReferences';
 import { getTemplateBridge } from '../bridge/client';
 import { listTemplatePages } from '../assets/templatePages';
-import { fileFromTemplate, goalWithAssetDraft, officeTemplates, type OfficeTemplate } from './officeAssetTemplates';
+import { fileFromTemplate, goalWithAssetDraft, officeTemplates, readTemplateContent, type OfficeTemplate } from './officeAssetTemplates';
 
 async function loadEnabledOfficeTemplates(): Promise<OfficeTemplate[]> {
   const page = await listTemplatePages(getTemplateBridge(), { status: 'enabled' });
   return officeTemplates(page.items);
 }
 function readOfficeTemplateFile(id: string): Promise<{ fileName?: string; contentBase64?: string }> {
-  return getTemplateBridge().open({ id, purpose: 'office' });
+  // 小模版单帧内联返回；大模版由后端标记 chunked，这里分片装配后取回。
+  return readTemplateContent(getTemplateBridge(), id);
 }
 
 export interface OfficeConversationOptions {

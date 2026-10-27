@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunitide.local/schema/bridge/v1/template.readChunk.schema.json",
+  "title": "template.readChunk payload",
+  "x-method": "template.readChunk",
+  "x-owner": "engine",
+  "x-enabled": true,
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "https://lunitide.local/schema/bridge/v1/public.dto.schema.json#/$defs/ULID" },
+    "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4194304
+    }
+  },
+  "required": ["id", "offset"],
+  "x-result": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "fileName": { "type": "string" },
+      "contentBase64": { "type": "string" },
+      "nextOffset": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "total": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "eof": { "type": "boolean" }
+    },
+    "required": ["fileName", "contentBase64", "nextOffset", "total", "eof"]
+  },
+  "x-examples": {
+    "positive": [{ "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "offset": 0 }],
+    "negative": [{ "unexpected": true }]
+  }
+}

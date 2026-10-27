@@ -77,8 +77,35 @@ func TestTemplateOpenOfficeReturnsBytesWithoutLaunching(t *testing.T) {
 		t.Fatalf("open %+v", out)
 	}
 	payload, _ := out.Payload.(map[string]any)
-	if payload["opened"] != false || payload["fileName"] != "deck.pptx" || payload["contentBase64"] != "cHB0eC1ieXRlcw==" {
+	if payload["opened"] != false || payload["fileName"] != "deck.pptx" || payload["contentBase64"] != "cHB0eC1ieXRlcw==" ||
+		payload["size"] != int(len("pptx-bytes")) {
 		t.Fatalf("payload %#v", payload)
+	}
+	if _, chunked := payload["chunked"]; chunked {
+		t.Fatalf("small template must stay inline: %#v", payload)
+	}
+}
+
+func TestTemplateOpenOfficeMarksOversizedTemplateChunked(t *testing.T) {
+	big := make([]byte, templateOpenInlineMax+1)
+	for i := range big {
+		big[i] = byte(i)
+	}
+	e := &Engine{assets: &openTemplateStore{tpl: asset.AssetTemplate{
+		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", FileName: "deck.pptx", FilePath: "stored.pptx",
+		TemplateType: asset.TemplateTypePPT, Status: asset.StatusEnabled,
+	}}, templateFiles: &memTemplateFiles{files: map[string][]byte{"stored.pptx": big}}}
+	out := handleTemplateOpen(e, context.Background(), validRequest("template.open", `{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","purpose":"office"}`))
+	if !out.OK {
+		t.Fatalf("open %+v", out)
+	}
+	payload, _ := out.Payload.(map[string]any)
+	if payload["opened"] != false || payload["fileName"] != "deck.pptx" ||
+		payload["size"] != len(big) || payload["chunked"] != true {
+		t.Fatalf("payload %#v", payload)
+	}
+	if content, has := payload["contentBase64"]; has && content != "" {
+		t.Fatalf("oversized template must not inline content: %#v", payload)
 	}
 }
 

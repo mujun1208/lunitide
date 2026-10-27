@@ -150,6 +150,7 @@ import {
   type AttachmentListPayload, type AttachmentListResult,
   type TemplateListPayload, type TemplateListResult,
   type TemplateOpenPayload, type TemplateOpenResult,
+  type TemplateReadChunkPayload, type TemplateReadChunkResult,
   type TemplateOfficeImportPayload, type TemplateOfficeImportResult,
   type TemplateCreatePayload, type TemplateCreateResult,
   type TemplateFileStagePayload, type TemplateFileStageResult,
@@ -1658,6 +1659,7 @@ export function getDesktopFilesBridge(): DesktopFilesBridge { return desktopFile
 
 export interface TemplateBridge {
   open(payload: TemplateOpenPayload): Promise<TemplateOpenResult>
+  readChunk(payload: TemplateReadChunkPayload): Promise<TemplateReadChunkResult>
   officeImport(payload: TemplateOfficeImportPayload, options?: MutationOptions<TemplateOfficeImportPayload>): Promise<TemplateOfficeImportResult>
   list(payload?: TemplateListPayload): Promise<TemplateListResult>
   fileStage(payload: TemplateFileStagePayload): Promise<TemplateFileStageResult>
@@ -1672,6 +1674,7 @@ export function createTemplateBridge(transport: WebViewTransport, defaultDeadlin
   return {
     list: p => core.request('template.list', p ?? {}),
     open: p => core.request('template.open', p, 20_000),
+    readChunk: p => core.request('template.readChunk', p, TEMPLATE_FILE_DEADLINE_MS),
     officeImport: (p, o) => retryBridgeRequest(() => core.request('template.office.import', p, TEMPLATE_FILE_DEADLINE_MS, o?.attempt)),
     fileStage: p => retryBridgeRequest(() => core.request('template.file.stage', p, TEMPLATE_FILE_DEADLINE_MS)),
     create: (p, o) => retryBridgeRequest(() => core.request('template.create', p, TEMPLATE_FILE_DEADLINE_MS, o?.attempt)),
@@ -1685,6 +1688,7 @@ let templateSingleton: TemplateBridge | undefined
 export function getTemplateBridge(): TemplateBridge { return templateSingleton ??= createTemplateBridge(webview()) }
 export const templateBridge: TemplateBridge = {
   open: p => getTemplateBridge().open(p),
+  readChunk: p => getTemplateBridge().readChunk(p),
   officeImport: (p, o) => getTemplateBridge().officeImport(p, o),
   list: p => getTemplateBridge().list(p),
   fileStage: p => getTemplateBridge().fileStage(p),

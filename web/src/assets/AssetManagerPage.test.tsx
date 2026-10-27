@@ -10,7 +10,7 @@ const template = (id: string, name: string): TemplateListResult['items'][number]
   id, name, templateCode: id, templateType: 'document', status: 'draft',
   createdAt: '2026-09-06T00:00:00Z', updatedAt: '2026-09-06T00:00:00Z', version: 1,
 })
-const bridge = (list: TemplateBridge['list']): TemplateBridge => ({ list, open: vi.fn(), create: vi.fn(), officeImport: vi.fn(), enable: vi.fn(), void: vi.fn(), restore: vi.fn(), delete: vi.fn(), fileStage: vi.fn() })
+const bridge = (list: TemplateBridge['list']): TemplateBridge => ({ list, open: vi.fn(), readChunk: vi.fn(), create: vi.fn(), officeImport: vi.fn(), enable: vi.fn(), void: vi.fn(), restore: vi.fn(), delete: vi.fn(), fileStage: vi.fn() })
 afterEach(cleanup)
 
 it('does not leak BridgeClientError transport English and keeps protocol codes', async () => {
